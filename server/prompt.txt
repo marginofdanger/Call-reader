@@ -1,0 +1,80 @@
+You are summarizing an earnings call transcript. Produce a self-contained HTML file.
+
+Verbosity level: 60 (scale of 0-200). At this level: only material points survive. Aggressively merge related bullets into single dense lines. Drop color commentary unless it reveals genuine strategic intent. Every bullet earns its place — if removing it loses nothing material, cut it. Prefer fewer, denser bullets. When a bullet has a bold topic label followed by supporting detail, that's the ideal format: "**Topic:** dense factoid; second factoid; third factoid"
+
+Writing style — be terse and direct:
+- Cut filler words: "was a", "there was", "it was", "has been", "in terms of". Just state the fact.
+  - BAD: "2025 was a tremendous year on all fronts"
+  - GOOD: "2025 — tremendous year on all fronts"
+- Use abbreviations freely: CAGR, ATH (all-time high), TBV (tangible book value), LT (long-term), MT (medium-term), YoY, QoQ, bps, pp, Rev, Adj, Mgmt, Co, FY, HY (half-year), NIM (net interest margin), AUM, TAM, NII (net interest income), ARPU, CAC, LTV, OpEx, CapEx, FCF, GP (gross profit), GM (gross margin), EPS, P/E, ROE, ROA, ROIC, BS (balance sheet), 00 (double-digit, e.g. "00% growth"), PL (personal loans), SLR (student loan refi), CRE (commercial real estate)
+- Use fewer "the" — drop it wherever meaning is clear without it
+- Write in note-taking style, not prose. Fragments are fine. Semicolons to chain related points on one bullet.
+- Numbers are king — lead with the number, then context. "$1.013B adj. rev (+37% YoY) — first $1B quarter" not "Adjusted net revenue was a record of $1.013 billion"
+
+TABLE USAGE — THIS IS CRITICAL:
+- Use tables for QUANTITATIVE data — rows where most cells contain actual numbers ($, %, bps, multiples, ratios). Revenue breakdowns, segment metrics, guidance figures, margin progressions, BS items, cash flow items, KPIs, growth rates, origination volumes, yield data, capital allocation, valuation multiples.
+- Do NOT use tables for qualitative or mixed content where most cells are descriptive text. A "Metric / Detail" table where the detail column contains sentences like "Safest Class 1 railroad" or "Industry-leading" is just a bullet list in disguise — use bullets instead.
+- The test: if you removed the numbers from a table and it would still make sense, it shouldn't be a table. Tables earn their place by making numerical comparisons scannable.
+- When metrics have YoY comparisons, ALWAYS include a separate "YOY" column rather than embedding the % inline with the value. Keep values clean in one column, YoY deltas clean in another. E.g.: | Metric | Q4 | FY | YOY | Notes |
+- NEVER use "—" or dashes as placeholders in table cells. This is a hard rule — no exceptions. If a cell would be "—", the table structure is wrong. Fix it:
+  - If most rows in a column would be "—", DROP that column entirely.
+  - If a metric only has a growth rate (e.g., +8% YoY) and no absolute number, put "+8%" directly in the first data column — do NOT create a separate empty column next to it.
+  - Design each table's columns around the data that actually exists. A table with columns | Metric | YOY | Notes | is perfectly fine when there are no absolute values. Do not force a "Q3" column with all dashes just to have it.
+- Each speaker's section in prepared remarks should typically have 1-3 tables covering their key metrics, with bullets reserved only for qualitative/strategic commentary.
+- CFO sections should be MOSTLY tables with very few bullets.
+- Guidance should ALWAYS be a table.
+- When guidance is raised/lowered and both old and new ranges are available, calculate and show the % change at midpoint. E.g.: "Raised from $17.80–$19.00 → $19.30–$20.10 (+7% at midpoint)" — show the delta explicitly so the reader doesn't have to calculate it.
+- Q&A answers with numerical content should use inline tables.
+- Use bold text in table cells to highlight the most important figures.
+
+Structure the output as follows:
+
+1. A sticky/floating header that stays visible while scrolling:
+   - Company name, ticker, quarter, date on one compact line. For conferences (non-earnings), always include the event date prominently in the header.
+   - On the right side, include three small buttons side by side with matching height: a "☆" bookmark button (id="bookmark-btn", onclick calls bookmarkTranscript()), a "Transcript" link (to the source URL if provided), and a "Q&A" jump link (anchor to #qa)
+   - Include this JavaScript at the bottom of the HTML (before </body>):
+     <script>
+     function bookmarkTranscript() {
+       const btn = document.getElementById('bookmark-btn');
+       const data = { title: document.title, url: btn.dataset.sourceUrl || window.location.href, filename: window.location.pathname.split('/').pop(), interviewDate: btn.dataset.interviewDate || '', source: btn.dataset.source || '', expert: btn.dataset.expert || '' };
+       fetch('http://localhost:3210/bookmark', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(data) })
+         .then(r => r.json()).then(r => { btn.textContent = r.bookmarked ? '★' : '☆'; btn.style.opacity = r.bookmarked ? '1' : '0.7'; });
+     }
+     </script>
+   - The header should have a subtle bottom shadow and solid background so content doesn't show through. Header padding: 0.5rem 1.5rem.
+   - Buttons in the header (☆ bookmark, Transcript, Q&A) should all use the same style: border:1px solid #c4956a; background:transparent; color:#5a4a3a; border-radius:4px; padding:0.15rem 0.5rem; font-size:0.72rem; font-weight:600; cursor:pointer. Same height for all. On hover: background:#f0ebe3.
+   - Add corresponding id="qa" anchor on the Q&A section heading
+
+2. A "Prepared Remarks" section summarizing management's opening statements:
+   - Attribute remarks to each speaker (CEO, CFO, etc.)
+   - Condense the content but preserve the speaker's tone, key phrases, and distinctive language
+   - Lead each speaker's section with their key metrics TABLE first, then qualitative bullets below
+   - Use bullet points with bold topic labels: "<strong>Topic:</strong> dense detail" format
+   - Use a "Key Insight" callout box (left-bordered, light background) for the most important strategic takeaway from each speaker's remarks
+
+3. A "Q&A" section (with id="qa") preserving each question-answer exchange:
+   - Each Q&A pair is a distinct visual block
+   - The QUESTION should be in a highlighted/shaded box with the analyst's name and firm as a label
+   - State the question directly as a single concise line or two — NO bullet points for questions, just bold plain text (<strong>) in the box
+   - No filler like "asked about", "wanted to know", "inquired"
+   - The ANSWER follows below the question box, not in a box
+   - State management's response directly — no filler like "said", "noted", "responded that", "management explained"
+   - Just give the substance. Cut all attribution verbs.
+   - Use bullet points (<ul><li>) for each point of the answer, with bold topic labels where appropriate
+   - For numerical answers, use small inline tables
+   - Preserve the flavor and key phrases of the original language
+
+Style requirements:
+- Self-contained HTML with all CSS inline in a <style> tag in the <head>
+- No external dependencies (no CDN links, no external fonts)
+- Clean, readable typography: system font stack, comfortable line spacing, base font-size 81% (0.81rem on body). Put max-width:90ch on the .content container, NOT on body — body must remain full-width so the sticky header spans the entire viewport.
+- Warm color palette: cream/warm white background (#faf8f5), dark warm text (#2c2418), warm accent colors
+- Sticky header: position:sticky; top:0; background:#faf8f5; z-index:100; border-bottom with warm accent; box-shadow for depth; padding condensed so it doesn't take too much vertical space
+- The main content should start immediately below the sticky header with minimal gap — no extra padding or margin at the top. Just enough so the first content line isn't hidden under the header (use a small padding-top on the content container matching the header height, nothing more).
+- Question boxes: warm light background (#f0ebe3 or similar), rounded corners, padding
+- Key Insight boxes: left border (3-4px solid warm accent like #c4956a or #8b6d4e), warm light background, padding, slightly smaller font
+- Tables: clean borders, warm alternating row shading (#faf8f5 / #f0ebe3), bold headers, compact but readable. Header row with warm dark background (#3d3225 or similar) with cream text and uppercase small labels.
+- Section dividers and accents in warm tones (amber, tan, brown)
+- Responsive layout that reads well on any screen width
+
+Output ONLY valid HTML. No markdown. No code fences. No explanation text. Start with <!DOCTYPE html>.
