@@ -54,18 +54,26 @@ Structure the output as follows:
    - Each theme is an h3 heading
    - Under each theme, summarize the relevant Q&A exchanges as bullets
    - Preserve the question-answer flow where it adds clarity, but merge related exchanges under the same theme
+   - When the expert makes strong evaluative or comparative statements about people, culture, or management, ALWAYS preserve them as direct quotes (e.g., "Constellation is the most disciplined and rigorous" organization the expert has worked at)
    - Use "Key Insight" callout boxes for the most important revelations within each theme
 
 5. An "Expert's Assessment" section at the end (include ONLY if the expert expresses opinions about the company, its management, or its outlook):
    - Capture the expert's overall sentiment and evaluation — are they bullish, bearish, neutral? Do they think the company is well-run, poorly managed, gaining/losing share?
-   - Include specific characterizations of management, strategy, culture, or execution (e.g., "CEO is exceptional operator", "company is bloated and slow", "will keep gaining share", "management is asleep at the wheel")
+   - Include specific characterizations of management, strategy, culture, or execution. Quote the expert directly when they make strong evaluative statements. Examples of what to capture:
+     * Superlative judgments: "the most disciplined", "best I've ever seen", "worst management team"
+     * Named individuals and their roles/reputations: "Mark Leonard was very involved", "the CEO is hands-off", "Bernie personally approves deals over $50M"
+     * Cultural assessments: "quite cultish", "morale is low", "everyone's biggest complaint is X"
+     * Comparative evaluations: "better than any PE shop I've worked with", "behind the curve on X"
    - Capture any forward-looking views: where the expert thinks the company/industry is headed, timeline expectations, catalysts, risks
-   - Preserve the expert's language and tone — their subjective assessment is the value here
+   - Preserve the expert's EXACT language and tone when they make evaluative statements — use quotes. Their subjective assessment is the most valuable part of the transcript. An investor reading this section should hear the expert's voice.
+   - This section should be THOROUGH — if the expert gives 5 distinct opinions/assessments, include all 5. Do not compress assessments. This is the one section where verbosity should be higher than the rest of the summary.
    - Skip this section entirely if the expert stays purely factual and offers no evaluative commentary
 
-6. A "Questions for Follow-Up" section at the bottom (2-4 bullets):
+6. A "Questions for Follow-Up" section at the bottom (2-4 bullets), collapsed by default:
    - Questions the interviewer didn't ask but should have, based on gaps in the conversation
    - Or areas where the expert's claims could be verified or challenged
+   - Add an <hr> before this section, then wrap it in a <details> element (closed by default) with <summary> as the heading:
+     <hr><details><summary><h2>Questions for Follow-Up</h2></summary> ... </details>
 
 Style requirements:
 - Self-contained HTML with all CSS inline in a <style> tag in the <head>

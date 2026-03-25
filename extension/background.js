@@ -1,17 +1,16 @@
 const SERVER_URL = 'http://localhost:3210';
 
-// Context menu — right-click extension icon to open status page
+// Context menu — right-click extension icon
 chrome.runtime.onInstalled.addListener(() => {
-  chrome.contextMenus.create({
-    id: 'open-status',
-    title: 'Open Summarizer Status',
-    contexts: ['action']
-  });
+  chrome.contextMenus.create({ id: 'open-status', title: 'Open Status Page', contexts: ['action'] });
+  chrome.contextMenus.create({ id: 'open-settings', title: 'Settings', contexts: ['action'] });
 });
 
 chrome.contextMenus.onClicked.addListener((info) => {
   if (info.menuItemId === 'open-status') {
     chrome.tabs.create({ url: `${SERVER_URL}/status` });
+  } else if (info.menuItemId === 'open-settings') {
+    chrome.action.openPopup();
   }
 });
 
@@ -88,6 +87,7 @@ chrome.runtime.onMessage.addListener((message, sender) => {
 
 async function sendToServer(data, endpoint, tabId) {
   try {
+    // Verbosity controlled by server settings (status page)
     const response = await fetch(`${SERVER_URL}${endpoint}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

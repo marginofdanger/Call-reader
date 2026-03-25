@@ -32,10 +32,12 @@ app.use((req, res, next) => {
 // Serve output files at /output/filename.html
 app.use('/output', express.static(OUTPUT_DIR));
 
-// Request queue — one at a time
+// Request queue — concurrent workers
 const queue = [];
-let processing = false;
-let currentJob = null;
+let activeWorkers = 0;
+let maxConcurrency = 3;
+const activeJobs = []; // track all currently processing jobs
+const processing = () => activeWorkers > 0;
 const LOG_PATH = path.resolve(__dirname, '..', 'output', 'history.json');
 // Load history from disk
 let completedJobs = [];
@@ -59,21 +61,24 @@ function enqueue(fn, label) {
 }
 
 async function processQueue() {
-  if (processing || queue.length === 0) return;
-  processing = true;
-  const { fn, resolve, reject } = queue.shift();
-  try {
-    resolve(await fn());
-  } catch (e) {
-    reject(e);
-  } finally {
-    processing = false;
-    processQueue();
+  while (activeWorkers < maxConcurrency && queue.length > 0) {
+    const { fn, resolve, reject } = queue.shift();
+    activeWorkers++;
+    (async () => {
+      try {
+        resolve(await fn());
+      } catch (e) {
+        reject(e);
+      } finally {
+        activeWorkers--;
+        processQueue();
+      }
+    })();
   }
 }
 
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', queued: queue.length, processing });
+  res.json({ status: 'ok', queued: queue.length, processing: processing(), activeWorkers, maxConcurrency });
 });
 
 // Remove item from queue
@@ -91,7 +96,7 @@ app.get('/queue/remove', (req, res) => {
 app.get('/status', (req, res) => {
   const html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
 <title>Summarizer Status</title>
-<meta http-equiv="refresh" content="5">
+<meta http-equiv="refresh" content="15">
 <style>
   body { font-family: -apple-system, system-ui, sans-serif; background: #faf8f5; color: #2c2418; margin: 0 auto; padding: 1.5rem 2rem; font-size: 0.9rem; max-width: 1600px; }
   h1 { font-size: 1.3rem; border-bottom: 2px solid #c4956a; padding-bottom: 0.5rem; margin-bottom: 1rem; }
@@ -128,6 +133,8 @@ app.get('/status', (req, res) => {
   .bookmark-item .bk-remove { float: right; color: #999; cursor: pointer; text-decoration: none; font-size: 0.8rem; }
   .bookmark-item .bk-remove:hover { color: #cc0000; }
   .empty { color: #8b6d4e; font-style: italic; }
+  .show-more { text-align: center; padding: 0.4rem; color: #8b6d4e; cursor: pointer; font-size: 0.82rem; font-weight: 600; border-radius: 4px; margin: 0.3rem 0; }
+  .show-more:hover { background: #f0ebe3; }
   .toggle-btn { cursor: pointer; user-select: none; }
   .toggle-btn:hover { opacity: 0.7; }
   .col-status { flex: 1.4; overflow: hidden; }
@@ -158,9 +165,32 @@ if (sessionStorage.getItem('completedOpen') === '1') {
 }
 </script>
 </head><body>
-<h1>BamSEC Summarizer</h1>
-<p><strong>Status:</strong> <span class="badge ${processing ? 'active' : 'idle'}">${processing ? '⏳ Processing' : '✓ Idle'}</span></p>
-${currentJob ? `<p><strong>Current:</strong> ${currentJob.company} ${currentJob.quarter} ${currentJob.year} (started ${Math.round((Date.now() - currentJob.startTime) / 1000)}s ago)</p>` : ''}
+<div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap">
+<h1 style="margin-bottom:0">BamSEC Summarizer</h1>
+<div style="font-size:0.78rem;color:#8b6d4e;display:flex;gap:1rem;align-items:center">
+<span><strong>Status:</strong> <span class="badge ${processing() ? 'active' : 'idle'}">${processing() ? '⏳ ' + activeWorkers + '/' + maxConcurrency : '✓ Idle'}</span></span>
+<label>EC verbosity <input type="number" id="ec-v" value="60" min="10" max="200" step="10" style="width:3rem;font-size:0.75rem;border:1px solid #c4956a;border-radius:3px;padding:1px 3px"></label>
+<label>Expert verbosity <input type="number" id="ex-v" value="30" min="10" max="200" step="10" style="width:3rem;font-size:0.75rem;border:1px solid #4a7ab5;border-radius:3px;padding:1px 3px"></label>
+<label>Workers <select id="conc" style="font-size:0.75rem;border:1px solid #c4956a;border-radius:3px;padding:1px"><option value="1">1</option><option value="2">2</option><option value="3" ${maxConcurrency===3?'selected':''}>3</option><option value="5" ${maxConcurrency===5?'selected':''}>5</option></select></label>
+<label>Model <select id="mod" style="font-size:0.75rem;border:1px solid #c4956a;border-radius:3px;padding:1px"><option value="opus">Opus</option><option value="sonnet">Sonnet</option></select></label>
+</div>
+</div>
+<script>
+// Sync settings with extension storage via server
+fetch('/settings').then(r=>r.json()).then(s=>{
+  if(s.ecVerbosity) document.getElementById('ec-v').value=s.ecVerbosity;
+  if(s.exVerbosity) document.getElementById('ex-v').value=s.exVerbosity;
+  if(s.concurrency) document.getElementById('conc').value=s.concurrency;
+  if(s.model) document.getElementById('mod').value=s.model;
+});
+['ec-v','ex-v','conc','mod'].forEach(id=>{
+  document.getElementById(id).addEventListener('change',()=>{
+    const data={ecVerbosity:+document.getElementById('ec-v').value,exVerbosity:+document.getElementById('ex-v').value,concurrency:+document.getElementById('conc').value,model:document.getElementById('mod').value};
+    fetch('/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+  });
+});
+</script>
+${activeJobs.length > 0 ? activeJobs.map(j => `<p><strong>Current:</strong> ${j.company} ${j.quarter} ${j.year} (started ${Math.round((Date.now() - j.startTime) / 1000)}s ago)</p>`).join('') : ''}
 ${queue.length > 0 ? `<h3>Queue (${queue.length})</h3>` + queue.map((q, i) => `<div class="queued-item"><span>${i + 1}. ${q.label || 'Unknown'}</span><a class="q-remove" href="/queue/remove?id=${q.queueId}" title="Cancel">✕</a></div>`).join('') : '<p>Queue empty</p>'}
 <div class="columns" id="columns">
 <div class="col-bookmarks" id="col-bookmarks">
@@ -188,10 +218,9 @@ ${bookmarks.length > 0 ? '<table class="bk-table">' + bookmarks.slice().reverse(
 </div>
 <div class="col-status" id="col-status">
 <h3 class="toggle-btn" onclick="toggleCompleted()"><span id="toggle-arrow">▶</span> Completed (${completedJobs.length})</h3>
-${completedJobs.length > 0 ? completedJobs.slice().reverse().map(j => {
+${completedJobs.length > 0 ? completedJobs.slice().reverse().map((j, i) => {
   const isExpert = (j.company || '').startsWith('[Expert]');
   const cls = isExpert ? 'done-item expert' : 'done-item';
-  // Split "[Expert] Title · Expert Role" into title and role
   let title = (j.company || '') + ' ' + (j.quarter || '') + ' ' + (j.year || '');
   let role = '';
   if (isExpert) {
@@ -201,11 +230,12 @@ ${completedJobs.length > 0 ? completedJobs.slice().reverse().map(j => {
   }
   const link = j.filename ? `<a class="done-title" href="/output/${j.filename}" target="_blank">${title}</a>` : `<span class="done-title">${title}</span>`;
   const timeStr = j.date ? new Date(j.date).toLocaleDateString('en-US', {month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}) : '';
-  return `<div class="${cls}"><div class="done-left">${link}${role ? `<div class="done-expert">${role}</div>` : ''}</div><div class="done-right time">${timeStr} · ${j.timeSeconds}s</div></div>`;
-}).join('') : '<p class="empty">None yet</p>'}
+  const hidden = i >= 30 ? ' style="display:none" class="' + cls + ' done-overflow"' : ' class="' + cls + '"';
+  return `<div${hidden}><div class="done-left">${link}${role ? `<div class="done-expert">${role}</div>` : ''}</div><div class="done-right time">${timeStr} · ${j.timeSeconds}s</div></div>`;
+}).join('') + (completedJobs.length > 30 ? `<div class="show-more" id="show-more-btn" onclick="document.querySelectorAll('.done-overflow').forEach(e=>e.style.display='');this.style.display='none'">Show ${completedJobs.length - 30} more...</div>` : '') : '<p class="empty">None yet</p>'}
 </div>
 </div>
-<p class="time" style="margin-top:1rem;text-align:center">Auto-refreshes every 5s</p>
+<p class="time" style="margin-top:1rem;text-align:center">Auto-refreshes every 15s</p>
 </body></html>`;
   res.send(html);
 });
@@ -219,7 +249,7 @@ app.get('/job/:id', (req, res) => {
 
 app.post('/summarize', async (req, res) => {
   const { company, quarter, year, eventDate, sourceUrl } = req.body;
-  const model = req.body.model || 'opus';
+  const model = req.body.model || settings.model || 'opus';
 
   // Support both split and legacy formats
   let transcript = req.body.transcript || '';
@@ -238,13 +268,17 @@ app.post('/summarize', async (req, res) => {
     return res.status(400).json({ success: false, error: 'Missing transcript text' });
   }
 
-  log(`POST /summarize: ${company} ${quarter} ${year} (transcript: ${transcript.length} chars)`);
+  // Lock in settings at click time
+  const verbosity = req.body.verbosity || settings.ecVerbosity || 60;
+  const lockedModel = model;
+
+  log(`POST /summarize: ${company} ${quarter} ${year} (transcript: ${transcript.length} chars, verbosity: ${verbosity}, model: ${lockedModel})`);
 
   // Assign job ID and respond immediately
   const jobId = String(++jobCounter);
   jobs.set(jobId, { status: 'queued', company, quarter, year });
 
-  const position = queue.length + (processing ? 1 : 0);
+  const position = queue.length + activeWorkers;
   if (position > 0) {
     log(`Queued: ${company} ${quarter} ${year} (position ${position + 1})`);
   }
@@ -256,18 +290,21 @@ app.post('/summarize', async (req, res) => {
   const label = `${company} ${quarter} ${year}`;
   enqueue(async () => {
     const startTime = Date.now();
-    currentJob = { company, quarter, year, startTime };
+    const jobEntry = { company, quarter, year, startTime, jobId };
+    activeJobs.push(jobEntry);
     jobs.set(jobId, { status: 'processing', company, quarter, year });
-    log(`Summarizing: ${label} [model=${model}]`);
+    log(`Summarizing: ${label} [model=${lockedModel}]`);
 
     try {
-      const promptTemplate = fs.readFileSync(PROMPT_PATH, 'utf-8');
+      let promptTemplate = fs.readFileSync(PROMPT_PATH, 'utf-8');
+      promptTemplate = promptTemplate.replace(/Verbosity level:\s*\d+/i, `Verbosity level: ${verbosity}`);
+      log(`Job ${jobId}: verbosity=${verbosity} model=${lockedModel}`);
       const fullPrompt = `${promptTemplate}\n\n---\n\nTRANSCRIPT:\n\n${transcript}`;
 
       const html = await new Promise((resolve, reject) => {
         const chunks = [];
         const errChunks = [];
-        const child = spawn('claude', ['-p', '--output-format', 'text', '--tools', '', '--model', model], {
+        const child = spawn('claude', ['-p', '--output-format', 'text', '--tools', '', '--model', lockedModel], {
           stdio: ['pipe', 'pipe', 'pipe'],
           timeout: 300000
         });
@@ -309,12 +346,12 @@ app.post('/summarize', async (req, res) => {
       log(`Saved: ${outputPath} (${totalTime}s) [${queue.length} remaining in queue]`);
       completedJobs.push({ company, quarter, year, timeSeconds: parseFloat(totalTime), date: new Date().toISOString(), filename });
       try { fs.writeFileSync(LOG_PATH, JSON.stringify(completedJobs, null, 2)); } catch (e) {}
-      currentJob = null;
+      const idx = activeJobs.findIndex(j => j.jobId === jobId); if (idx >= 0) activeJobs.splice(idx, 1);
 
       jobs.set(jobId, { status: 'done', filename, company, quarter, year, timeSeconds: parseFloat(totalTime) });
     } catch (error) {
       log(`ERROR Summarization failed: ${error.message}`);
-      currentJob = null;
+      const idx = activeJobs.findIndex(j => j.jobId === jobId); if (idx >= 0) activeJobs.splice(idx, 1);
       jobs.set(jobId, { status: 'error', error: error.message, company, quarter, year });
     }
   }, label);
@@ -325,7 +362,7 @@ const EXPERT_PROMPT_PATH = path.resolve(__dirname, 'prompt-expert.txt');
 
 app.post('/summarize-expert', async (req, res) => {
   const { title, transcript, primaryCompany, interviewDate, expertPerspective, source, sourceUrl } = req.body;
-  const model = req.body.model || 'opus';
+  const model = req.body.model || settings.model || 'opus';
 
   if (!transcript || transcript.length < 200) {
     return res.status(400).json({ success: false, error: 'Missing or too short transcript text' });
@@ -341,7 +378,11 @@ app.post('/summarize-expert', async (req, res) => {
 
   const fullTranscript = `${header}\n---\n\n${transcript}`;
 
-  log(`POST /summarize-expert: "${title}" company=${primaryCompany || 'none'} expert=${expertPerspective || 'none'} source=${source || 'none'} (transcript: ${transcript.length} chars)`);
+  // Lock in settings at click time
+  const verbosity = req.body.verbosity || settings.exVerbosity || 30;
+  const lockedModel = model;
+
+  log(`POST /summarize-expert: "${title}" company=${primaryCompany || 'none'} expert=${expertPerspective || 'none'} source=${source || 'none'} date=${interviewDate || 'NONE'} (transcript: ${transcript.length} chars, verbosity: ${verbosity}, model: ${lockedModel})`);
 
   // Assign job ID and respond immediately
   const jobId = String(++jobCounter);
@@ -353,7 +394,7 @@ app.post('/summarize-expert', async (req, res) => {
   const label = `[Expert] ${labelParts.join(' · ') || 'Unknown'}`;
   jobs.set(jobId, { status: 'queued', company: label, quarter: '', year: '' });
 
-  const position = queue.length + (processing ? 1 : 0);
+  const position = queue.length + activeWorkers;
   if (position > 0) {
     log(`Queued: ${label} (position ${position + 1})`);
   }
@@ -363,18 +404,21 @@ app.post('/summarize-expert', async (req, res) => {
   // Process in background
   enqueue(async () => {
     const startTime = Date.now();
-    currentJob = { company: label, quarter: '', year: '', startTime };
+    const jobEntry = { company: label, quarter: '', year: '', startTime, jobId };
+    activeJobs.push(jobEntry);
     jobs.set(jobId, { status: 'processing', company: label, quarter: '', year: '' });
-      log(`Summarizing expert transcript: ${label} [model=${model}]`);
+    log(`Summarizing expert transcript: ${label} [model=${lockedModel}]`);
 
     try {
-      const promptTemplate = fs.readFileSync(EXPERT_PROMPT_PATH, 'utf-8');
+      let promptTemplate = fs.readFileSync(EXPERT_PROMPT_PATH, 'utf-8');
+      promptTemplate = promptTemplate.replace(/Verbosity level:\s*\d+/i, `Verbosity level: ${verbosity}`);
+      log(`Job ${jobId}: verbosity=${verbosity} model=${lockedModel}`);
       const fullPrompt = `${promptTemplate}\n\n---\n\nTRANSCRIPT:\n\n${fullTranscript}`;
 
       const html = await new Promise((resolve, reject) => {
         const chunks = [];
         const errChunks = [];
-        const child = spawn('claude', ['-p', '--output-format', 'text', '--tools', '', '--model', model], {
+        const child = spawn('claude', ['-p', '--output-format', 'text', '--tools', '', '--model', lockedModel], {
           stdio: ['pipe', 'pipe', 'pipe'],
           timeout: 300000
         });
@@ -447,12 +491,12 @@ app.post('/summarize-expert', async (req, res) => {
       log(`Saved: ${outputPath} (${totalTime}s) [${queue.length} remaining in queue]`);
       completedJobs.push({ company: completedLabel, quarter: '', year: '', timeSeconds: parseFloat(totalTime), date: new Date().toISOString(), filename });
       try { fs.writeFileSync(LOG_PATH, JSON.stringify(completedJobs, null, 2)); } catch (e) {}
-      currentJob = null;
+      const idx = activeJobs.findIndex(j => j.jobId === jobId); if (idx >= 0) activeJobs.splice(idx, 1);
 
       jobs.set(jobId, { status: 'done', filename, company: completedLabel, quarter: '', year: '', timeSeconds: parseFloat(totalTime) });
     } catch (error) {
       log(`ERROR Expert summarization failed: ${error.message}`);
-      currentJob = null;
+      const idx = activeJobs.findIndex(j => j.jobId === jobId); if (idx >= 0) activeJobs.splice(idx, 1);
       jobs.set(jobId, { status: 'error', error: error.message, company: label, quarter: '', year: '' });
     }
   }, label);
@@ -482,6 +526,30 @@ app.get('/bookmark/remove', (req, res) => {
   res.redirect('/status');
 });
 
+// Settings storage
+let settings = { ecVerbosity: 60, exVerbosity: 30, concurrency: 3, model: 'opus' };
+const SETTINGS_PATH = path.resolve(__dirname, 'settings.json');
+try { settings = { ...settings, ...JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf-8')) }; } catch (e) {}
+maxConcurrency = settings.concurrency || 3;
+
+app.get('/settings', (req, res) => {
+  res.json(settings);
+});
+
+app.post('/settings', (req, res) => {
+  if (req.body.ecVerbosity != null) settings.ecVerbosity = Math.max(10, Math.min(200, parseInt(req.body.ecVerbosity)));
+  if (req.body.exVerbosity != null) settings.exVerbosity = Math.max(10, Math.min(200, parseInt(req.body.exVerbosity)));
+  if (req.body.concurrency != null) {
+    settings.concurrency = Math.max(1, Math.min(10, parseInt(req.body.concurrency)));
+    maxConcurrency = settings.concurrency;
+    processQueue();
+  }
+  if (req.body.model) settings.model = req.body.model;
+  try { fs.writeFileSync(SETTINGS_PATH, JSON.stringify(settings, null, 2)); } catch (e) {}
+  log(`Settings updated: ${JSON.stringify(settings)}`);
+  res.json(settings);
+});
+
 app.listen(PORT, () => {
-  log(`BamSEC Summarizer server running at http://localhost:${PORT}`);
+  log(`BamSEC Summarizer server running at http://localhost:${PORT} (concurrency: ${maxConcurrency})`);
 });

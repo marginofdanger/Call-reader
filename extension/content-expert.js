@@ -39,6 +39,25 @@
 
   const h1 = doc.querySelector('h1');
   if (h1) title = h1.textContent.trim();
+  // For AlphaSense iframes, try parent frame for title
+  if (!title || title === 'AlphaSense') {
+    try {
+      if (window.top !== window && window.top.document) {
+        const topH1 = window.top.document.querySelector('h1');
+        if (topH1) title = topH1.textContent.trim();
+      }
+    } catch (e) {}
+  }
+
+  // Try to get metadata from parent frame first (AlphaSense puts metadata in parent, transcript in iframe)
+  let metaText = bodyText;
+  let topDoc = null;
+  try {
+    if (window.top !== window && window.top.document) {
+      topDoc = window.top.document;
+      metaText = topDoc.body.innerText || metaText;
+    }
+  } catch (e) {}
 
   const metaPatterns = {
     interviewDate: /INTERVIEW\s*DATE\s*\n?\s*(.+)/i,
@@ -49,7 +68,7 @@
   };
 
   for (const [key, pattern] of Object.entries(metaPatterns)) {
-    const match = bodyText.match(pattern);
+    const match = metaText.match(pattern);
     if (match) {
       const val = match[1].trim().split('\n')[0].trim();
       if (key === 'interviewDate') interviewDate = val;
@@ -57,6 +76,53 @@
       else if (key === 'expertPerspective') expertPerspective = val;
       else if (key === 'analystPerspective') analystPerspective = val;
       else if (key === 'primaryCompany') primaryCompany = val;
+    }
+  }
+
+  // --- AlphaSense parent frame date fallback ---
+  // If INTERVIEW DATE regex didn't find the date, try structured elements in parent frame
+  if (!interviewDate && topDoc && source === 'AlphaSense') {
+    // Look for date near the document header — AlphaSense shows "DD MMM YYYY" or "DD Mon YYYY"
+    // near the title/metadata area. Try elements with date-like content near the top.
+    // AlphaSense header bar shows: "TICKER  COMPANY  EXPERT CALL  PERSPECTIVE  DD MON YY  N PAGES"
+    // Search broadly in the parent page for any date near the transcript metadata
+    const allParentEls = topDoc.querySelectorAll('[class*="date"], [class*="meta"], [class*="detail"], [class*="header"] span, [class*="header"] div, [class*="toolbar"] span, time, [class*="subtitle"]');
+    for (const el of allParentEls) {
+      const text = el.textContent.trim();
+      const dm = text.match(/^(\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\w*\s+\d{2,4})$/i);
+      if (dm) { interviewDate = dm[1]; break; }
+    }
+    // Try selected/active sidebar item
+    if (!interviewDate) {
+      const selected = topDoc.querySelectorAll('[class*="selected"], [class*="active"], [aria-selected="true"], [class*="current"], [class*="highlight"]');
+      for (const el of selected) {
+        const dm = el.textContent.match(/(\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\w*\s+\d{2,4})/i);
+        if (dm) { interviewDate = dm[1]; break; }
+      }
+    }
+    // Last resort: search the parent page's full text for INTERVIEW DATE or DATE PUBLISHED
+    // Also try to find date near the title text
+    if (!interviewDate) {
+      const topText = topDoc.body.innerText || '';
+      // Try "DD MON YY" or "DD MON YYYY" appearing right after certain labels
+      const labelDate = topText.match(/(?:INTERVIEW\s*DATE|DATE\s*PUBLISHED|Event\s*Date)[:\s]*(\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\w*\s+\d{2,4})/i);
+      if (labelDate) {
+        interviewDate = labelDate[1];
+      } else {
+        // Find date near the page title — within first 500 chars of the title appearing
+        const titleIdx = topText.indexOf(title);
+        if (titleIdx > -1) {
+          const nearTitle = topText.slice(Math.max(0, titleIdx - 200), titleIdx + title.length + 200);
+          const dm = nearTitle.match(/(\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\w*\s+\d{2,4})/i);
+          if (dm) interviewDate = dm[1];
+        }
+      }
+    }
+    // Very last resort: any DD MON YY/YYYY pattern appearing before "PAGES" (AlphaSense header format)
+    if (!interviewDate) {
+      const topText = topDoc.body.innerText || '';
+      const pagesMatch = topText.match(/(\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\w*\s+\d{2,4})\s+\d+\s+PAGES?/i);
+      if (pagesMatch) interviewDate = pagesMatch[1];
     }
   }
 
@@ -154,6 +220,11 @@
   if (!primaryCompany) {
     const tickerMatch = bodyText.match(/^([A-Z]{1,5})\s+[A-Z][a-zA-Z\s]+(?:Corp|Inc|Ltd|Co|Group|Holdings)/m);
     if (tickerMatch) primaryCompany = tickerMatch[1];
+  }
+
+  // Normalize 2-digit years to 4-digit (e.g. "10 Apr 24" → "10 Apr 2024")
+  if (interviewDate) {
+    interviewDate = interviewDate.replace(/(\d{1,2}\s+\w+\s+)(\d{2})$/,(m,p,y)=> p + (parseInt(y)>50?'19':'20') + y);
   }
 
   chrome.runtime.sendMessage({
