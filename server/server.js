@@ -17,6 +17,21 @@ function log(msg) {
   fs.appendFileSync(SERVER_LOG, line + '\n');
 }
 
+function uniqueFilename(dir, name) {
+  let filePath = path.join(dir, name);
+  if (!fs.existsSync(filePath)) return { filename: name, outputPath: filePath };
+  const ext = path.extname(name);
+  const base = name.slice(0, -ext.length);
+  let i = 2;
+  while (fs.existsSync(filePath)) {
+    const newName = `${base}-${i}${ext}`;
+    filePath = path.join(dir, newName);
+    if (!fs.existsSync(filePath)) return { filename: newName, outputPath: filePath };
+    i++;
+  }
+  return { filename: name, outputPath: filePath };
+}
+
 if (!fs.existsSync(OUTPUT_DIR)) {
   fs.mkdirSync(OUTPUT_DIR, { recursive: true });
 }
@@ -324,11 +339,12 @@ app.post('/summarize', async (req, res) => {
 
       const sanitized = (company || 'UNKNOWN')
         .replace(/[^a-zA-Z0-9]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '').toUpperCase();
-      const filename = `${sanitized}-${quarter || 'QX'}-${year || new Date().getFullYear()}.html`;
-      const outputPath = path.join(OUTPUT_DIR, filename);
+      const { filename, outputPath } = uniqueFilename(OUTPUT_DIR, `${sanitized}-${quarter || 'QX'}-${year || new Date().getFullYear()}.html`);
+
+      // Inject metadata into HTML head
+      let finalHtml = html.replace('</head>', `<meta name="summarizer-verbosity" content="${verbosity}">\n<meta name="summarizer-model" content="${lockedModel}">\n</head>`);
 
       // Inject bookmark data attributes server-side for earnings calls — strip any Claude-generated data-* attrs first
-      let finalHtml = html;
       const earningsSource = 'EC';
       const earningsDate = eventDate || `${quarter} ${year}`;
       finalHtml = finalHtml.replace(/(<(?:button|a)[^>]*id="bookmark-btn")[^>]*>/, (match, prefix) => {
@@ -441,8 +457,7 @@ app.post('/summarize-expert', async (req, res) => {
       const sanitized = nameSource
         .replace(/[^a-zA-Z0-9]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '').toUpperCase();
       const datePart = interviewDate ? interviewDate.replace(/\s+/g, '-').replace(/[^a-zA-Z0-9-]/g, '') : new Date().toISOString().slice(0, 10);
-      const filename = `EXPERT-${sanitized}-${datePart}.html`;
-      const outputPath = path.join(OUTPUT_DIR, filename);
+      const { filename, outputPath } = uniqueFilename(OUTPUT_DIR, `EXPERT-${sanitized}-${datePart}.html`);
 
       // Determine source abbreviation
       const srcAbbrev = (source || '').toLowerCase().includes('alphasights') ? 'AS' : 'TG';
@@ -466,8 +481,10 @@ app.post('/summarize-expert', async (req, res) => {
         if (roleParts.length > 0) expertDesc = roleParts.join(' · ');
       }
 
+      // Inject metadata into HTML head
+      let finalHtml = html.replace('</head>', `<meta name="summarizer-verbosity" content="${verbosity}">\n<meta name="summarizer-model" content="${lockedModel}">\n</head>`);
+
       // Inject bookmark data attributes server-side — strip any Claude-generated data-* attrs first to avoid duplicates
-      let finalHtml = html;
       finalHtml = finalHtml.replace(/(<(?:button|a)[^>]*id="bookmark-btn")[^>]*>/, (match, prefix) => {
         // Strip all existing data-* attributes
         const cleaned = prefix.replace(/\s+data-[a-z-]+="[^"]*"/gi, '');
