@@ -249,3 +249,13 @@ test('renderYouTubeOutput includes the body fragment inside <main>', () => {
   assert.ok(between.includes('<p>y</p>'));
   assert.ok(between.includes('yt-meta-card'));
 });
+
+test('renderYouTubeOutput wraps body fragment in .yt-body', () => {
+  const html = renderYouTubeOutput(sampleMeta, '<p class="q">why?</p><p>because</p>');
+  assert.ok(html.includes('<div class="yt-body">'));
+  const bodyOpen = html.indexOf('<div class="yt-body">');
+  assert.ok(bodyOpen > 0);
+  const after = html.slice(bodyOpen);
+  assert.ok(after.includes('<p class="q">why?</p>'));
+  assert.ok(after.includes('<p>because</p>'));
+});

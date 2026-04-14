@@ -646,7 +646,7 @@ app.post('/summarize-youtube', async (req, res) => {
           child.stdin.end();
         });
 
-        // Validate: body fragment must start with <h3 or <p (per prompt spec)
+        // Validate: body fragment must start with <h3, <p, or <p class="q"
         trimmed = bodyFragment.trim();
         if (!trimmed || !(trimmed.startsWith('<h3') || trimmed.startsWith('<p'))) {
           throw new Error(`Claude returned non-fragment output (${bodyFragment.length} chars). First 300: ${bodyFragment.slice(0, 300)}`);

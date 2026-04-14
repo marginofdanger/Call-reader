@@ -144,7 +144,9 @@ function renderYouTubeOutput(meta, bodyFragment) {
         <div class="yt-meta-url">${watchUrl}</div>
       </div>
     </div>
+    <div class="yt-body">
     ${bodyFragment}
+    </div>
   </main>
 </body>
 </html>
