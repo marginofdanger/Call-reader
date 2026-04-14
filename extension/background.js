@@ -143,32 +143,53 @@ async function handleYouTube(tabId) {
   }
   const track = englishTracks.find(t => t.kind !== 'asr') || englishTracks[0];
 
-  // Fetch timedtext JSON
+  // Fetch timedtext JSON from the YouTube tab's main world so the request
+  // runs with YT's own origin/cookies — the extension-context fetch returns
+  // an empty body because the timedtext endpoint is session-scoped.
   let captions;
   try {
     const captionUrl = new URL(track.baseUrl);
     captionUrl.searchParams.set('fmt', 'json3');
     const finalUrl = captionUrl.toString();
-    console.log('YouTube: fetching captions from', finalUrl);
-    const resp = await fetch(finalUrl);
-    console.log(`YouTube: caption response ${resp.status} ${resp.statusText}, content-length=${resp.headers.get('content-length')}`);
-    if (!resp.ok) {
+    console.log('YouTube: fetching captions (main world) from', finalUrl);
+
+    const fetchResults = await chrome.scripting.executeScript({
+      target: { tabId },
+      world: 'MAIN',
+      func: async (url) => {
+        try {
+          const r = await fetch(url, { credentials: 'include' });
+          const txt = await r.text();
+          return { ok: r.ok, status: r.status, text: txt };
+        } catch (err) {
+          return { ok: false, status: 0, text: '', error: String(err && err.message || err) };
+        }
+      },
+      args: [finalUrl],
+    });
+    const result = fetchResults && fetchResults[0] && fetchResults[0].result;
+    if (!result) {
       await setBadge('ERR', '#cc0000', tabId);
-      console.error(`YouTube: caption fetch failed ${resp.status}`);
+      console.error('YouTube: caption fetch script returned no result');
       return;
     }
-    const text = await resp.text();
-    if (!text || text.trim().length === 0) {
+    console.log(`YouTube: caption response ${result.status}, body length ${result.text.length}`);
+    if (!result.ok) {
+      await setBadge('ERR', '#cc0000', tabId);
+      console.error(`YouTube: caption fetch failed ${result.status}`, result.error || '');
+      return;
+    }
+    if (!result.text || result.text.trim().length === 0) {
       await setBadge('ERR', '#cc0000', tabId);
       console.error('YouTube: caption response body was empty. URL:', finalUrl);
       return;
     }
-    console.log(`YouTube: caption response text length ${text.length}, first 200 chars: ${text.slice(0, 200)}`);
+    console.log(`YouTube: caption body first 200 chars: ${result.text.slice(0, 200)}`);
     try {
-      captions = JSON.parse(text);
+      captions = JSON.parse(result.text);
     } catch (parseErr) {
       await setBadge('ERR', '#cc0000', tabId);
-      console.error('YouTube: caption JSON parse error:', parseErr, 'body:', text.slice(0, 500));
+      console.error('YouTube: caption JSON parse error:', parseErr, 'body:', result.text.slice(0, 500));
       return;
     }
   } catch (e) {
