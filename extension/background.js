@@ -20,7 +20,6 @@ const SITE_PATTERNS = {
   expert: { match: url => /tegus\.co|alpha-sense\.com|alphasense\.com|alphasights\.com/i.test(url), script: 'content-expert.js', endpoint: '/summarize-expert' },
   youtube: {
     match: url => /(?:^|\.)youtube\.com\/watch/.test(url),
-    script: 'content-youtube.js',
     endpoint: '/summarize-youtube'
   },
 };
@@ -53,7 +52,7 @@ chrome.action.onClicked.addListener(async (tab) => {
 
   await setBadge('...', '#0066cc', tab.id);
 
-  // Inject appropriate content script
+  // Dispatch by site type
   try {
     if (site.key === 'expert') {
       // Two-phase: extract metadata from all frames first, then inject transcript script
@@ -68,6 +67,10 @@ chrome.action.onClicked.addListener(async (tab) => {
         target: { tabId: tab.id, allFrames: true },
         files: [site.script]
       });
+    } else if (site.key === 'youtube') {
+      // YouTube: extract page globals from MAIN world directly (bypasses CSP),
+      // do caption fetch + metadata + POST all from the service worker.
+      await handleYouTube(tab.id);
     } else {
       await chrome.scripting.executeScript({
         target: { tabId: tab.id, allFrames: true },
@@ -76,9 +79,135 @@ chrome.action.onClicked.addListener(async (tab) => {
     }
   } catch (e) {
     await setBadge('ERR', '#cc0000', tab.id);
-    console.error('Failed to inject content script:', e);
+    console.error('Failed to process page:', e);
   }
 });
+
+async function handleYouTube(tabId) {
+  if (tabsSending.has(tabId)) return;
+
+  // Extract globals from the page's MAIN world
+  const scriptResults = await chrome.scripting.executeScript({
+    target: { tabId },
+    world: 'MAIN',
+    func: () => ({
+      player: window.ytInitialPlayerResponse || null,
+      initial: window.ytInitialData || null,
+    }),
+  });
+  const globals = scriptResults && scriptResults[0] && scriptResults[0].result;
+  if (!globals || !globals.player) {
+    await setBadge('ERR', '#cc0000', tabId);
+    console.error('YouTube: failed to read page globals');
+    return;
+  }
+  const { player, initial } = globals;
+
+  // Resolve English caption track
+  const tracks =
+    player.captions &&
+    player.captions.playerCaptionsTracklistRenderer &&
+    player.captions.playerCaptionsTracklistRenderer.captionTracks;
+  if (!Array.isArray(tracks) || tracks.length === 0) {
+    await setBadge('ERR', '#cc0000', tabId);
+    console.error('YouTube: no captions available for this video');
+    return;
+  }
+  const isEnglish = code => {
+    if (!code) return false;
+    const lower = String(code).toLowerCase();
+    return lower === 'en' || lower.startsWith('en-');
+  };
+  const englishTracks = tracks.filter(t => t && isEnglish(t.languageCode));
+  if (englishTracks.length === 0) {
+    await setBadge('ERR', '#cc0000', tabId);
+    console.error('YouTube: no English captions for this video');
+    return;
+  }
+  const track = englishTracks.find(t => t.kind !== 'asr') || englishTracks[0];
+
+  // Fetch timedtext JSON
+  let captions;
+  try {
+    const resp = await fetch(track.baseUrl + '&fmt=json3');
+    if (!resp.ok) {
+      await setBadge('ERR', '#cc0000', tabId);
+      console.error(`YouTube: caption fetch failed ${resp.status}`);
+      return;
+    }
+    captions = await resp.json();
+  } catch (e) {
+    await setBadge('ERR', '#cc0000', tabId);
+    console.error('YouTube: caption fetch error:', e);
+    return;
+  }
+
+  // Parse transcript events
+  const transcript = [];
+  for (const ev of (captions.events || [])) {
+    if (!ev.segs) continue;
+    const text = ev.segs.map(s => s.utf8 || '').join('').replace(/\s+/g, ' ').trim();
+    if (!text) continue;
+    transcript.push({ startMs: Number(ev.tStartMs) || 0, text });
+  }
+  if (transcript.length === 0) {
+    await setBadge('ERR', '#cc0000', tabId);
+    console.error('YouTube: caption track was empty');
+    return;
+  }
+
+  // Metadata
+  const vd = player.videoDetails || {};
+  const micro = player.microformat && player.microformat.playerMicroformatRenderer;
+  const thumbs = (vd.thumbnail && vd.thumbnail.thumbnails) || [];
+  const bestThumb = thumbs.length > 0 ? thumbs[thumbs.length - 1].url : '';
+  const meta = {
+    title: vd.title || '',
+    channel: vd.author || '',
+    videoId: vd.videoId || '',
+    durationSec: Number(vd.lengthSeconds) || 0,
+    thumbnailUrl: bestThumb,
+    uploadDate: (micro && micro.uploadDate) || '',
+    watchUrl: vd.videoId ? `https://www.youtube.com/watch?v=${vd.videoId}` : '',
+  };
+
+  // Chapters (optional)
+  const chapters = extractYouTubeChapters(initial);
+
+  // Verbosity from storage (default 180)
+  const { ytVerbosity } = await chrome.storage.local.get('ytVerbosity');
+  const verbosity = typeof ytVerbosity === 'number' ? ytVerbosity : 180;
+
+  const payload = { ...meta, chapters, transcript, verbosity };
+  tabsSending.add(tabId);
+  sendToServer(payload, '/summarize-youtube', tabId).finally(() => tabsSending.delete(tabId));
+}
+
+function extractYouTubeChapters(initial) {
+  try {
+    const overlays = initial && initial.playerOverlays && initial.playerOverlays.playerOverlayRenderer;
+    const dec = overlays && overlays.decoratedPlayerBarRenderer && overlays.decoratedPlayerBarRenderer.decoratedPlayerBarRenderer;
+    const playerBar = dec && dec.playerBar && dec.playerBar.multiMarkersPlayerBarRenderer;
+    const markersMap = playerBar && playerBar.markersMap;
+    if (!Array.isArray(markersMap)) return [];
+    const entry = markersMap.find(m => m && (m.key === 'DESCRIPTION_CHAPTERS' || m.key === 'AUTO_CHAPTERS'));
+    if (!entry || !entry.value || !Array.isArray(entry.value.chapters)) return [];
+    const out = [];
+    for (const c of entry.value.chapters) {
+      const r = c && c.chapterRenderer;
+      if (!r) continue;
+      const title =
+        (r.title && typeof r.title.simpleText === 'string' && r.title.simpleText) ||
+        (r.title && Array.isArray(r.title.runs) && r.title.runs.map(x => (x && x.text) || '').join('')) ||
+        null;
+      const startMs = Number(r.timeRangeStartMillis);
+      if (title && Number.isFinite(startMs)) out.push({ title, startMs });
+    }
+    return out;
+  } catch (e) {
+    return [];
+  }
+}
 
 // Track which tabs have already sent a request (prevent duplicate sends from multiple frames)
 const tabsSending = new Set();
@@ -139,9 +268,6 @@ chrome.runtime.onMessage.addListener((message, sender) => {
       tabMetadata.delete(tabId);
     }
     sendToServer(message.data, '/summarize-expert', tabId).finally(() => tabsSending.delete(tabId));
-  } else if (message.type === 'youtube-transcript') {
-    tabsSending.add(tabId);
-    sendToServer(message.data, '/summarize-youtube', tabId).finally(() => tabsSending.delete(tabId));
   }
 });
 
