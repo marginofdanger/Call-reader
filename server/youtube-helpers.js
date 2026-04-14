@@ -42,4 +42,18 @@ function formatUploadDate(iso) {
   return `${months[d.getUTCMonth()]} ${d.getUTCDate()}, ${d.getUTCFullYear()}`;
 }
 
-module.exports = { htmlEscape, slugify, formatDuration, formatUploadDate };
+function isEnglish(code) {
+  if (!code) return false;
+  const lower = String(code).toLowerCase();
+  return lower === 'en' || lower.startsWith('en-');
+}
+
+function resolveCaptionTrack(tracks) {
+  if (!Array.isArray(tracks) || tracks.length === 0) return null;
+  const englishTracks = tracks.filter(t => t && isEnglish(t.languageCode));
+  if (englishTracks.length === 0) return null;
+  const human = englishTracks.find(t => t.kind !== 'asr');
+  return human || englishTracks[0];
+}
+
+module.exports = { htmlEscape, slugify, formatDuration, formatUploadDate, resolveCaptionTrack };

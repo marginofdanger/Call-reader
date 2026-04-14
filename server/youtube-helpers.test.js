@@ -73,3 +73,45 @@ test('formatUploadDate returns empty string on invalid input', () => {
   assert.equal(formatUploadDate('not-a-date'), '');
   assert.equal(formatUploadDate(null), '');
 });
+
+const { resolveCaptionTrack } = require('./youtube-helpers');
+
+const track = (languageCode, kind, baseUrl) => ({ languageCode, kind, baseUrl });
+
+test('resolveCaptionTrack prefers human English over auto English', () => {
+  const tracks = [
+    track('en', 'asr', 'auto-en'),
+    track('en', undefined, 'human-en'),
+    track('es', undefined, 'human-es'),
+  ];
+  assert.equal(resolveCaptionTrack(tracks).baseUrl, 'human-en');
+});
+
+test('resolveCaptionTrack falls back to auto English if no human English', () => {
+  const tracks = [
+    track('en', 'asr', 'auto-en'),
+    track('es', undefined, 'human-es'),
+  ];
+  assert.equal(resolveCaptionTrack(tracks).baseUrl, 'auto-en');
+});
+
+test('resolveCaptionTrack returns null when no English track exists', () => {
+  const tracks = [
+    track('es', undefined, 'human-es'),
+    track('fr', 'asr', 'auto-fr'),
+  ];
+  assert.equal(resolveCaptionTrack(tracks), null);
+});
+
+test('resolveCaptionTrack returns null on null/empty input', () => {
+  assert.equal(resolveCaptionTrack(null), null);
+  assert.equal(resolveCaptionTrack([]), null);
+});
+
+test('resolveCaptionTrack treats en-US, en-GB as English', () => {
+  const tracks = [
+    track('en-GB', undefined, 'human-gb'),
+    track('es', undefined, 'human-es'),
+  ];
+  assert.equal(resolveCaptionTrack(tracks).baseUrl, 'human-gb');
+});
