@@ -10,7 +10,9 @@
     "https://*.tegus.co/*",
     "https://*.alphasense.com/*",
     "https://*.alpha-sense.com/*",
-    "https://*.alphasights.com/*"
+    "https://*.alphasights.com/*",
+    "https://www.youtube.com/*",
+    "https://m.youtube.com/*"
   ],
   "action": {
     "default_title": "Summarize Transcript",
