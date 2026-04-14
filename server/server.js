@@ -2,6 +2,7 @@ const express = require('express');
 const { spawn, exec } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const yt = require('./youtube-helpers');
 
 const app = express();
 app.use(express.json({ limit: '5mb' }));
@@ -46,6 +47,11 @@ app.use((req, res, next) => {
 
 // Serve output files at /output/filename.html
 app.use('/output', express.static(OUTPUT_DIR));
+
+// Serve style.css at /style.css (referenced by YouTube output shell)
+app.get('/style.css', (req, res) => {
+  res.sendFile(path.resolve(__dirname, 'style.css'));
+});
 
 // Request queue — concurrent workers
 const queue = [];
@@ -326,16 +332,24 @@ app.post('/summarize', async (req, res) => {
         child.stdout.on('data', d => chunks.push(d));
         child.stderr.on('data', d => errChunks.push(d));
         child.on('close', code => {
+          const stderr = Buffer.concat(errChunks).toString();
+          if (stderr) log(`Job ${jobId} stderr: ${stderr.slice(0, 500)}`);
           if (code !== 0) {
-            reject(new Error(`Claude exited ${code}: ${Buffer.concat(errChunks).toString()}`));
+            reject(new Error(`Claude exited ${code}: ${stderr}`));
           } else {
             resolve(Buffer.concat(chunks).toString());
           }
         });
         child.on('error', err => reject(err));
+        log(`Job ${jobId}: prompt size ${fullPrompt.length} chars`);
         child.stdin.write(fullPrompt);
         child.stdin.end();
       });
+
+      // Validate output
+      if (!html || (!html.includes('<!DOCTYPE') && !html.includes('<html'))) {
+        throw new Error(`Empty or invalid HTML output (${html.length} chars). First 200: ${html.slice(0, 200)}`);
+      }
 
       const sanitized = (company || 'UNKNOWN')
         .replace(/[^a-zA-Z0-9]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '').toUpperCase();
@@ -375,9 +389,10 @@ app.post('/summarize', async (req, res) => {
 
 // Expert transcript summarization
 const EXPERT_PROMPT_PATH = path.resolve(__dirname, 'prompt-expert.txt');
+const PROMPT_YT_PATH = path.resolve(__dirname, 'prompt-youtube.txt');
 
 app.post('/summarize-expert', async (req, res) => {
-  const { title, transcript, primaryCompany, interviewDate, expertPerspective, source, sourceUrl } = req.body;
+  const { title, transcript, primaryCompany, interviewDate, expertPerspective, expertBio, source, sourceUrl } = req.body;
   const model = req.body.model || settings.model || 'opus';
 
   if (!transcript || transcript.length < 200) {
@@ -388,6 +403,7 @@ app.post('/summarize-expert', async (req, res) => {
   let header = `Expert Interview: ${title || 'Unknown'}\n`;
   if (primaryCompany) header += `Primary Company: ${primaryCompany}\n`;
   if (expertPerspective) header += `Expert: ${expertPerspective}\n`;
+  if (expertBio) header += `Expert Bio: ${expertBio}\n`;
   if (interviewDate) header += `Interview Date: ${interviewDate}\n`;
   if (source) header += `Source: ${source}\n`;
   if (sourceUrl) header += `Source URL: ${sourceUrl}\n`;
@@ -441,16 +457,24 @@ app.post('/summarize-expert', async (req, res) => {
         child.stdout.on('data', d => chunks.push(d));
         child.stderr.on('data', d => errChunks.push(d));
         child.on('close', code => {
+          const stderr = Buffer.concat(errChunks).toString();
+          if (stderr) log(`Job ${jobId} stderr: ${stderr.slice(0, 500)}`);
           if (code !== 0) {
-            reject(new Error(`Claude exited ${code}: ${Buffer.concat(errChunks).toString()}`));
+            reject(new Error(`Claude exited ${code}: ${stderr}`));
           } else {
             resolve(Buffer.concat(chunks).toString());
           }
         });
         child.on('error', err => reject(err));
+        log(`Job ${jobId}: prompt size ${fullPrompt.length} chars`);
         child.stdin.write(fullPrompt);
         child.stdin.end();
       });
+
+      // Validate output
+      if (!html || (!html.includes('<!DOCTYPE') && !html.includes('<html'))) {
+        throw new Error(`Empty or invalid HTML output (${html.length} chars). First 200: ${html.slice(0, 200)}`);
+      }
 
       // Generate filename from title or company
       const nameSource = primaryCompany || title || 'EXPERT';
@@ -519,6 +543,148 @@ app.post('/summarize-expert', async (req, res) => {
   }, label);
 });
 
+// Build a raw YouTube body fragment (no Claude) by dumping each scraped
+// transcript segment as a timestamped <p>. Used when body.raw === true
+// for quick scrape verification.
+function buildRawYouTubeBody(body) {
+  const transcript = Array.isArray(body.transcript) ? body.transcript : [];
+  const chapters = Array.isArray(body.chapters) ? body.chapters.slice() : [];
+  chapters.sort((a, b) => (a.startMs || 0) - (b.startMs || 0));
+  const watchUrl = String(body.watchUrl || '');
+  const parts = [];
+  let chapterIdx = 0;
+  for (const seg of transcript) {
+    const startMs = Number(seg.startMs) || 0;
+    while (chapterIdx < chapters.length && chapters[chapterIdx].startMs <= startMs) {
+      const ch = chapters[chapterIdx];
+      const startSec = Math.floor((Number(ch.startMs) || 0) / 1000);
+      const mmss = yt.formatMmSs(ch.startMs);
+      parts.push(
+        `<h3 class="chapter"><span>${yt.htmlEscape(ch.title)}</span>` +
+        `<a href="${yt.htmlEscape(watchUrl)}&t=${startSec}s">&#x21AA; ${mmss}</a></h3>`
+      );
+      chapterIdx++;
+    }
+    const mmss = yt.formatMmSs(startMs);
+    const text = yt.htmlEscape(String(seg.text || '').trim());
+    if (text) {
+      parts.push(`<p><span style="color:#8b6d4e;font-size:0.85em;">[${mmss}]</span> ${text}</p>`);
+    }
+  }
+  return parts.join('\n');
+}
+
+// YouTube transcript reader
+app.post('/summarize-youtube', async (req, res) => {
+  const body = req.body || {};
+  if (!Array.isArray(body.transcript) || body.transcript.length === 0) {
+    return res.status(400).json({ success: false, error: 'Missing transcript' });
+  }
+  if (!body.title || typeof body.title !== 'string') {
+    return res.status(400).json({ success: false, error: 'Missing title' });
+  }
+  if (typeof body.watchUrl !== 'string') {
+    return res.status(400).json({ success: false, error: 'Missing watchUrl' });
+  }
+
+  const verbosity = Number(body.verbosity) || 180;
+  // YouTube transcript cleanup is a mechanical edit task (punctuation,
+  // paragraph breaks, filler strip) that doesn't need Opus reasoning.
+  // Lock the YT endpoint to Haiku so it's fast and cheap; other endpoints
+  // still pick up settings.model from the status page dropdown.
+  const lockedModel = 'haiku';
+  const label = `[YT] ${body.title.length > 80 ? body.title.slice(0, 77) + '...' : body.title}`;
+
+  log(`POST /summarize-youtube: "${body.title}" channel=${body.channel || 'none'} ` +
+      `(transcript entries: ${body.transcript.length}, verbosity: ${verbosity}, model: ${lockedModel})`);
+
+  const jobId = String(++jobCounter);
+  jobs.set(jobId, { status: 'queued', company: label, quarter: '', year: '' });
+
+  const position = queue.length + activeWorkers;
+  if (position > 0) log(`Queued: ${label} (position ${position + 1})`);
+
+  res.json({ success: true, jobId, queued: position > 0 });
+
+  enqueue(async () => {
+    const startTime = Date.now();
+    const jobEntry = { company: label, quarter: '', year: '', startTime, jobId };
+    activeJobs.push(jobEntry);
+    jobs.set(jobId, { status: 'processing', company: label, quarter: '', year: '' });
+    log(`Cleaning up YouTube transcript: ${label} [model=${lockedModel}]`);
+
+    try {
+      let trimmed;
+      if (body.raw === true) {
+        log(`Job ${jobId}: RAW mode -- skipping Claude, dumping scraped transcript as-is`);
+        trimmed = buildRawYouTubeBody(body);
+      } else {
+        const promptTemplate = fs.readFileSync(PROMPT_YT_PATH, 'utf-8');
+        const claudeInput = yt.buildClaudeInput(promptTemplate, { ...body, verbosity });
+        log(`Job ${jobId}: prompt size ${claudeInput.length} chars`);
+
+        const bodyFragment = await new Promise((resolve, reject) => {
+          const chunks = [];
+          const errChunks = [];
+          const child = spawn('claude', ['-p', '--output-format', 'text', '--tools', '', '--model', lockedModel], {
+            stdio: ['pipe', 'pipe', 'pipe'],
+            timeout: 300000
+          });
+          child.stdout.on('data', d => chunks.push(d));
+          child.stderr.on('data', d => errChunks.push(d));
+          child.on('close', code => {
+            const stderr = Buffer.concat(errChunks).toString();
+            if (stderr) log(`Job ${jobId} stderr: ${stderr.slice(0, 500)}`);
+            if (code !== 0) {
+              reject(new Error(`Claude exited ${code}: ${stderr}`));
+            } else {
+              resolve(Buffer.concat(chunks).toString());
+            }
+          });
+          child.on('error', err => reject(err));
+          child.stdin.write(claudeInput);
+          child.stdin.end();
+        });
+
+        // Validate: body fragment must start with <h3, <p, or <p class="q"
+        trimmed = bodyFragment.trim();
+        if (!trimmed || !(trimmed.startsWith('<h3') || trimmed.startsWith('<p'))) {
+          throw new Error(`Claude returned non-fragment output (${bodyFragment.length} chars). First 300: ${bodyFragment.slice(0, 300)}`);
+        }
+      }
+
+      // Reserve the filename before rendering so we can embed it in the
+      // HTML (used by the bookmark button to identify this output).
+      const dateStr = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+      const { filename, outputPath } = uniqueFilename(OUTPUT_DIR, `yt-${dateStr}-${yt.slugify(body.title)}.html`);
+
+      const meta = {
+        title: body.title,
+        channel: body.channel || '',
+        uploadDate: body.uploadDate || '',
+        durationSec: Number(body.durationSec) || 0,
+        thumbnailUrl: body.thumbnailUrl || '',
+        watchUrl: body.watchUrl,
+        filename,
+      };
+      const finalHtml = yt.renderYouTubeOutput(meta, trimmed);
+      fs.writeFileSync(outputPath, finalHtml, 'utf-8');
+
+      const totalTime = ((Date.now() - startTime) / 1000).toFixed(1);
+      log(`Saved: ${outputPath} (${totalTime}s) [${queue.length} remaining in queue]`);
+      completedJobs.push({ company: label, quarter: '', year: '', timeSeconds: parseFloat(totalTime), date: new Date().toISOString(), filename });
+      try { fs.writeFileSync(LOG_PATH, JSON.stringify(completedJobs, null, 2)); } catch (e) {}
+      const idx = activeJobs.findIndex(j => j.jobId === jobId); if (idx >= 0) activeJobs.splice(idx, 1);
+
+      jobs.set(jobId, { status: 'done', filename, company: label, quarter: '', year: '', timeSeconds: parseFloat(totalTime) });
+    } catch (error) {
+      log(`ERROR YouTube cleanup failed: ${error.message}`);
+      const idx = activeJobs.findIndex(j => j.jobId === jobId); if (idx >= 0) activeJobs.splice(idx, 1);
+      jobs.set(jobId, { status: 'error', error: error.message, company: label, quarter: '', year: '' });
+    }
+  }, label);
+});
+
 // Bookmark toggle
 app.post('/bookmark', (req, res) => {
   const { title, url, filename, interviewDate, source, expert } = req.body;
@@ -532,6 +698,12 @@ app.post('/bookmark', (req, res) => {
     try { fs.writeFileSync(BOOKMARKS_PATH, JSON.stringify(bookmarks, null, 2)); } catch (e) {}
     res.json({ bookmarked: true });
   }
+});
+
+// Return the full bookmark list as JSON (used by YT output pages to
+// check if the current file is already bookmarked on load)
+app.get('/bookmarks', (req, res) => {
+  res.json(bookmarks);
 });
 
 // Remove bookmark via GET (for status page links)
