@@ -18,9 +18,9 @@ const STYLE_CSS_PATH = path.resolve(__dirname, 'style.css');
 // environment variables if the layout differs.
 const SHARE_REPO_PATH = process.env.READER_SHARE_REPO
   || path.resolve(__dirname, '..', '..', 'marginofdanger.github.io');
-const SHARE_SUBDIR = process.env.READER_SHARE_SUBDIR || 'reader';
+const SHARE_SUBDIR = process.env.READER_SHARE_SUBDIR || 'reader/shares';
 const SHARE_BASE_URL = process.env.READER_SHARE_BASE_URL
-  || 'https://marginofdanger.github.io/reader';
+  || 'https://marginofdanger.github.io/reader/shares';
 
 function readStyleCss() {
   try { return fs.readFileSync(STYLE_CSS_PATH, 'utf-8'); }
