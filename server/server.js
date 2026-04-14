@@ -48,6 +48,11 @@ app.use((req, res, next) => {
 // Serve output files at /output/filename.html
 app.use('/output', express.static(OUTPUT_DIR));
 
+// Serve style.css at /style.css (referenced by YouTube output shell)
+app.get('/style.css', (req, res) => {
+  res.sendFile(path.resolve(__dirname, 'style.css'));
+});
+
 // Request queue — concurrent workers
 const queue = [];
 let activeWorkers = 0;
