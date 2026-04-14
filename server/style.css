@@ -187,29 +187,41 @@ header:has(.header-inner.yt) { padding: 0.75rem 1rem; }
   align-items: center;
   flex: 0 0 auto;
 }
-.yt-bookmark-btn {
+/* Shared box shape for the star + YT buttons so they're visually
+   identical. Applies to both the <button> bookmark and the <a> link. */
+.yt-header-actions .yt-bookmark-btn,
+.yt-header-actions .header-link {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   font: inherit;
-  font-size: 1rem;
+  font-size: 0.85rem;
   line-height: 1;
   color: #8b6d4e;
   background: transparent;
   border: 1px solid #c4956a;
-  padding: 0.25rem 0.6rem;
   border-radius: 4px;
-  cursor: pointer;
-  min-width: 2rem;
+  padding: 0;
+  box-sizing: border-box;
+  width: 2.2rem;
+  height: 2.2rem;
   white-space: nowrap;
+  text-decoration: none;
+  cursor: pointer;
 }
-.yt-bookmark-btn:hover { background: #f0ebe3; color: #3d3225; }
-.yt-bookmark-btn.is-bookmarked {
+.yt-header-actions .yt-bookmark-btn { font-size: 1rem; }
+.yt-header-actions .header-link { font-weight: 700; }
+.yt-header-actions .yt-bookmark-btn:hover,
+.yt-header-actions .header-link:hover {
+  background: #f0ebe3;
+  color: #3d3225;
+}
+.yt-header-actions .yt-bookmark-btn.is-bookmarked {
   background: #c4956a;
   color: #faf8f5;
   border-color: #a87d5a;
 }
-.yt-bookmark-btn.is-bookmarked:hover {
+.yt-header-actions .yt-bookmark-btn.is-bookmarked:hover {
   background: #a87d5a;
   color: #faf8f5;
 }
