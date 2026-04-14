@@ -149,15 +149,15 @@ function renderYouTubeOutput(meta, bodyFragment) {
       <div class="yt-header-actions">
         <button id="yt-bookmark-btn"
                 class="yt-bookmark-btn"
+                title="Bookmark"
+                aria-label="Bookmark"
                 data-filename="${filename}"
                 data-title="${title}"
                 data-url="${watchUrl}"
                 data-date="${rawUploadDate}"
                 data-channel="${channel}"
-                onclick="toggleYtBookmark(this)">
-          <span class="yt-star">&#9734;</span><span class="yt-bookmark-label">Bookmark</span>
-        </button>
-        <a class="header-link" href="${watchUrl}" target="_blank">Watch on YouTube</a>
+                onclick="toggleYtBookmark(this)">&#9734;</button>
+        <a class="header-link" href="${watchUrl}" target="_blank" title="Watch on YouTube" aria-label="Watch on YouTube">YT</a>
       </div>
     </div>
   </header>
@@ -190,10 +190,9 @@ function renderYouTubeOutput(meta, bodyFragment) {
   }
   function setYtBookmarkState(btn, on) {
     btn.classList.toggle('is-bookmarked', on);
-    const star = btn.querySelector('.yt-star');
-    const label = btn.querySelector('.yt-bookmark-label');
-    if (star) star.innerHTML = on ? '&#9733;' : '&#9734;';
-    if (label) label.textContent = on ? 'Bookmarked' : 'Bookmark';
+    btn.innerHTML = on ? '&#9733;' : '&#9734;';
+    btn.title = on ? 'Bookmarked' : 'Bookmark';
+    btn.setAttribute('aria-label', on ? 'Bookmarked' : 'Bookmark');
   }
   (async function initYtBookmarkState() {
     const btn = document.getElementById('yt-bookmark-btn');

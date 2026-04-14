@@ -270,10 +270,9 @@ test('renderYouTubeOutput packs thumbnail, date, length into the sticky header',
   assert.ok(between.includes('1h 47m'));
   assert.ok(between.includes('Apr 2, 2026'));
   assert.ok(between.includes(sampleMeta.channel));
-  assert.ok(between.includes('Watch on YouTube'));
-  // Only one Watch on YouTube anywhere in the doc
-  const matches = html.match(/Watch on YouTube/g) || [];
-  assert.equal(matches.length, 1);
+  // Header link is accessibility-labeled with "Watch on YouTube" and shows "YT"
+  assert.ok(between.includes('title="Watch on YouTube"'));
+  assert.ok(between.match(/>YT<\/a>/));
 });
 
 test('renderYouTubeOutput includes bookmark button with filename data attr', () => {
