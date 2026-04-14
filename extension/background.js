@@ -171,11 +171,24 @@ async function handleYouTube(tabId) {
 
       const snapshotPanels = () => {
         const panels = document.querySelectorAll('ytd-engagement-panel-section-list-renderer');
-        diag.engagementPanels = Array.from(panels).map(p => ({
-          targetId: p.getAttribute('target-id') || '',
-          visible: p.getAttribute('visibility') || p.hasAttribute('visibility-updates') || '',
-          hidden: p.hasAttribute('hidden'),
-        }));
+        diag.engagementPanelTargetIds = Array.from(panels).map(p => p.getAttribute('target-id') || '(no target-id)');
+        const transcriptPanel = Array.from(panels).find(p => /transcript/i.test(p.getAttribute('target-id') || ''));
+        if (transcriptPanel) {
+          diag.transcriptPanelTargetId = transcriptPanel.getAttribute('target-id');
+          diag.transcriptPanelVisibility = transcriptPanel.getAttribute('visibility') || '(none)';
+          diag.transcriptPanelHidden = transcriptPanel.hasAttribute('hidden');
+          // List child custom elements inside the transcript panel (depth 3)
+          const tags = new Set();
+          const walk = (el, depth) => {
+            if (depth > 4) return;
+            for (const child of el.children || []) {
+              if (child.tagName && child.tagName.includes('-')) tags.add(child.tagName.toLowerCase());
+              walk(child, depth + 1);
+            }
+          };
+          walk(transcriptPanel, 0);
+          diag.transcriptPanelCustomElements = Array.from(tags);
+        }
       };
 
       // If transcript is already open, just read it.
@@ -231,7 +244,7 @@ async function handleYouTube(tabId) {
       for (let i = 0; i < 80; i++) {
         await sleep(100);
         segs = readSegments();
-        if (segs.length > 0) return { ok: true, segments: segs, opened: true, diag };
+        if (segs.length > 0) { snapshotPanels(); return { ok: true, segments: segs, opened: true, diag }; }
       }
       snapshotPanels();
       return { ok: false, error: 'Transcript panel did not populate within 8s', diag };
