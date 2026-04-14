@@ -172,28 +172,33 @@ async function handleYouTube(tabId) {
       const snapshotPanels = () => {
         const panels = document.querySelectorAll('ytd-engagement-panel-section-list-renderer');
         diag.engagementPanelTargetIds = Array.from(panels).map(p => p.getAttribute('target-id') || '(no target-id)');
-        const transcriptPanel = Array.from(panels).find(p => /transcript/i.test(p.getAttribute('target-id') || ''));
-        if (transcriptPanel) {
-          diag.transcriptPanelTargetId = transcriptPanel.getAttribute('target-id');
-          diag.transcriptPanelVisibility = transcriptPanel.getAttribute('visibility') || '(none)';
-          diag.transcriptPanelHidden = transcriptPanel.hasAttribute('hidden');
-          // List child custom elements inside the transcript panel (depth 3)
+        // Check target-ids containing "transcript" OR "in-this-video" (new merged layout)
+        const matchPanel = Array.from(panels).find(p => /transcript|in-this-video|single-video/i.test(p.getAttribute('target-id') || ''));
+        if (matchPanel) {
+          diag.transcriptPanelTargetId = matchPanel.getAttribute('target-id');
+          diag.transcriptPanelVisibility = matchPanel.getAttribute('visibility') || '(none)';
+          diag.transcriptPanelHidden = matchPanel.hasAttribute('hidden');
+          // List all custom element tag names inside the panel
           const tags = new Set();
-          const walk = (el, depth) => {
-            if (depth > 4) return;
+          const walk = (el) => {
             for (const child of el.children || []) {
               if (child.tagName && child.tagName.includes('-')) tags.add(child.tagName.toLowerCase());
-              walk(child, depth + 1);
+              walk(child);
             }
           };
-          walk(transcriptPanel, 0);
+          walk(matchPanel);
           diag.transcriptPanelCustomElements = Array.from(tags);
+          // Dump a trimmed sample of outerHTML so I can see the actual structure
+          const html = matchPanel.outerHTML || '';
+          diag.transcriptPanelHtmlSample = html.length > 3000
+            ? html.slice(0, 1500) + '\n...[truncated ' + (html.length - 3000) + ' chars]...\n' + html.slice(-1500)
+            : html;
         }
       };
 
       // If transcript is already open, just read it.
       let segs = readSegments();
-      if (segs.length > 0) return { ok: true, segments: segs, opened: false, diag };
+      if (segs.length > 0) { snapshotPanels(); return { ok: true, segments: segs, opened: false, diag }; }
 
       // Expand description if collapsed.
       const expand = document.querySelector('tp-yt-paper-button#expand, #expand, #description-inline-expander #expand');
