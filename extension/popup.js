@@ -2,15 +2,18 @@ const SERVER_URL = 'http://localhost:3210';
 
 const ecSlider = document.getElementById('ec-verbosity');
 const exSlider = document.getElementById('ex-verbosity');
+const ytSlider = document.getElementById('yt-verbosity');
 const ecVal = document.getElementById('ec-val');
 const exVal = document.getElementById('ex-val');
+const ytVal = document.getElementById('yt-val');
 const concurrency = document.getElementById('concurrency');
 const statusLink = document.getElementById('status-link');
 
 // Load saved settings
-chrome.storage.local.get(['ecVerbosity', 'exVerbosity', 'concurrency'], (data) => {
+chrome.storage.local.get(['ecVerbosity', 'exVerbosity', 'ytVerbosity', 'concurrency'], (data) => {
   if (data.ecVerbosity != null) { ecSlider.value = data.ecVerbosity; ecVal.textContent = data.ecVerbosity; }
   if (data.exVerbosity != null) { exSlider.value = data.exVerbosity; exVal.textContent = data.exVerbosity; }
+  if (data.ytVerbosity != null) { ytSlider.value = data.ytVerbosity; ytVal.textContent = data.ytVerbosity; }
   if (data.concurrency != null) { concurrency.value = data.concurrency; }
 });
 
@@ -22,6 +25,11 @@ ecSlider.addEventListener('input', () => {
 exSlider.addEventListener('input', () => {
   exVal.textContent = exSlider.value;
   chrome.storage.local.set({ exVerbosity: parseInt(exSlider.value) });
+});
+
+ytSlider.addEventListener('input', () => {
+  ytVal.textContent = ytSlider.value;
+  chrome.storage.local.set({ ytVerbosity: parseInt(ytSlider.value) });
 });
 
 concurrency.addEventListener('change', () => {
