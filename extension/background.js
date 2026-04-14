@@ -120,95 +120,107 @@ async function handleYouTube(tabId) {
     return;
   }
 
-  // Resolve English caption track
-  const tracks =
+  // Fast sanity check: does YouTube even think this video has captions?
+  const hasCaptions =
     player.captions &&
     player.captions.playerCaptionsTracklistRenderer &&
-    player.captions.playerCaptionsTracklistRenderer.captionTracks;
-  if (!Array.isArray(tracks) || tracks.length === 0) {
+    Array.isArray(player.captions.playerCaptionsTracklistRenderer.captionTracks) &&
+    player.captions.playerCaptionsTracklistRenderer.captionTracks.length > 0;
+  if (!hasCaptions) {
     await setBadge('ERR', '#cc0000', tabId);
     console.error('YouTube: no captions available for this video');
     return;
   }
-  const isEnglish = code => {
-    if (!code) return false;
-    const lower = String(code).toLowerCase();
-    return lower === 'en' || lower.startsWith('en-');
-  };
-  const englishTracks = tracks.filter(t => t && isEnglish(t.languageCode));
-  if (englishTracks.length === 0) {
-    await setBadge('ERR', '#cc0000', tabId);
-    console.error('YouTube: no English captions for this video');
-    return;
-  }
-  const track = englishTracks.find(t => t.kind !== 'asr') || englishTracks[0];
 
-  // Fetch timedtext JSON from the YouTube tab's main world so the request
-  // runs with YT's own origin/cookies — the extension-context fetch returns
-  // an empty body because the timedtext endpoint is session-scoped.
-  let captions;
-  try {
-    const captionUrl = new URL(track.baseUrl);
-    captionUrl.searchParams.set('fmt', 'json3');
-    const finalUrl = captionUrl.toString();
-    console.log('YouTube: fetching captions (main world) from', finalUrl);
+  // Scrape the transcript from the YouTube tab's UI. The timedtext API
+  // endpoint now returns empty bodies for anything without a Proof-of-Origin
+  // token, so we go through the DOM instead: open the transcript panel if
+  // it isn't already open, wait for segments to appear, read them.
+  console.log('YouTube: scraping transcript from tab UI');
+  const scrapeResults = await chrome.scripting.executeScript({
+    target: { tabId },
+    world: 'MAIN',
+    func: async () => {
+      const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-    const fetchResults = await chrome.scripting.executeScript({
-      target: { tabId },
-      world: 'MAIN',
-      func: async (url) => {
-        try {
-          const r = await fetch(url, { credentials: 'include' });
-          const txt = await r.text();
-          return { ok: r.ok, status: r.status, text: txt };
-        } catch (err) {
-          return { ok: false, status: 0, text: '', error: String(err && err.message || err) };
+      const readSegments = () => {
+        const nodes = document.querySelectorAll('ytd-transcript-segment-renderer');
+        const out = [];
+        for (const n of nodes) {
+          const timeEl = n.querySelector('.segment-timestamp, [class*="segment-timestamp"]');
+          const textEl = n.querySelector('.segment-text, yt-formatted-string.segment-text, [class*="segment-text"]');
+          const time = timeEl ? timeEl.textContent.trim() : '';
+          const text = textEl ? textEl.textContent.trim() : '';
+          if (text) out.push({ time, text });
         }
-      },
-      args: [finalUrl],
-    });
-    const result = fetchResults && fetchResults[0] && fetchResults[0].result;
-    if (!result) {
-      await setBadge('ERR', '#cc0000', tabId);
-      console.error('YouTube: caption fetch script returned no result');
-      return;
-    }
-    console.log(`YouTube: caption response ${result.status}, body length ${result.text.length}`);
-    if (!result.ok) {
-      await setBadge('ERR', '#cc0000', tabId);
-      console.error(`YouTube: caption fetch failed ${result.status}`, result.error || '');
-      return;
-    }
-    if (!result.text || result.text.trim().length === 0) {
-      await setBadge('ERR', '#cc0000', tabId);
-      console.error('YouTube: caption response body was empty. URL:', finalUrl);
-      return;
-    }
-    console.log(`YouTube: caption body first 200 chars: ${result.text.slice(0, 200)}`);
-    try {
-      captions = JSON.parse(result.text);
-    } catch (parseErr) {
-      await setBadge('ERR', '#cc0000', tabId);
-      console.error('YouTube: caption JSON parse error:', parseErr, 'body:', result.text.slice(0, 500));
-      return;
-    }
-  } catch (e) {
+        return out;
+      };
+
+      // If transcript is already open, just read it.
+      let segs = readSegments();
+      if (segs.length > 0) return { ok: true, segments: segs, opened: false };
+
+      // Expand description if collapsed.
+      const expand = document.querySelector('tp-yt-paper-button#expand, #expand');
+      if (expand) { expand.click(); await sleep(150); }
+
+      // Find a transcript trigger button. Try a few selectors.
+      let triggerBtn = null;
+      const candidates = [
+        'ytd-video-description-transcript-section-renderer button',
+        'ytd-video-description-transcript-section-renderer ytd-button-renderer button',
+        'button[aria-label*="ranscript" i]',
+      ];
+      for (const sel of candidates) {
+        const b = document.querySelector(sel);
+        if (b) { triggerBtn = b; break; }
+      }
+      if (!triggerBtn) {
+        // Last resort: scan all buttons for "show transcript" text
+        const allBtns = document.querySelectorAll('button, yt-button-shape button, tp-yt-paper-button');
+        for (const b of allBtns) {
+          const label = (b.getAttribute('aria-label') || b.textContent || '').trim();
+          if (/show transcript/i.test(label)) { triggerBtn = b; break; }
+        }
+      }
+      if (!triggerBtn) {
+        return { ok: false, error: 'Could not find Show transcript button' };
+      }
+      triggerBtn.click();
+
+      // Poll for segments to appear, up to 5 seconds.
+      for (let i = 0; i < 50; i++) {
+        await sleep(100);
+        segs = readSegments();
+        if (segs.length > 0) return { ok: true, segments: segs, opened: true };
+      }
+      return { ok: false, error: 'Transcript panel did not populate within 5s' };
+    },
+  });
+
+  const scrapeResult = scrapeResults && scrapeResults[0] && scrapeResults[0].result;
+  if (!scrapeResult) {
     await setBadge('ERR', '#cc0000', tabId);
-    console.error('YouTube: caption fetch error:', e);
+    console.error('YouTube: transcript scrape script returned no result');
     return;
   }
+  if (!scrapeResult.ok) {
+    await setBadge('ERR', '#cc0000', tabId);
+    console.error('YouTube: transcript scrape failed:', scrapeResult.error);
+    return;
+  }
+  console.log(`YouTube: scraped ${scrapeResult.segments.length} transcript segments`);
 
-  // Parse transcript events
+  // Parse "H:MM:SS" / "M:SS" timestamps to ms.
   const transcript = [];
-  for (const ev of (captions.events || [])) {
-    if (!ev.segs) continue;
-    const text = ev.segs.map(s => s.utf8 || '').join('').replace(/\s+/g, ' ').trim();
-    if (!text) continue;
-    transcript.push({ startMs: Number(ev.tStartMs) || 0, text });
+  for (const seg of scrapeResult.segments) {
+    const startMs = parseTimestampToMs(seg.time);
+    const text = (seg.text || '').replace(/\s+/g, ' ').trim();
+    if (text) transcript.push({ startMs, text });
   }
   if (transcript.length === 0) {
     await setBadge('ERR', '#cc0000', tabId);
-    console.error('YouTube: caption track was empty');
+    console.error('YouTube: transcript was empty after parsing');
     return;
   }
 
@@ -237,6 +249,17 @@ async function handleYouTube(tabId) {
   const payload = { ...meta, chapters, transcript, verbosity };
   tabsSending.add(tabId);
   sendToServer(payload, '/summarize-youtube', tabId).finally(() => tabsSending.delete(tabId));
+}
+
+function parseTimestampToMs(ts) {
+  if (!ts) return 0;
+  const parts = String(ts).split(':').map(x => parseInt(x, 10));
+  if (parts.some(n => Number.isNaN(n))) return 0;
+  let sec = 0;
+  if (parts.length === 1) sec = parts[0];
+  else if (parts.length === 2) sec = parts[0] * 60 + parts[1];
+  else if (parts.length === 3) sec = parts[0] * 3600 + parts[1] * 60 + parts[2];
+  return sec * 1000;
 }
 
 function extractVideoId(tabUrl) {
