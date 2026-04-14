@@ -228,10 +228,14 @@ ${bookmarks.length > 0 ? '<table class="bk-table">' + bookmarks.slice().reverse(
   const m = dateStr.match(/^(\d{1,2})\s*(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\w*\s*(\d{4})$/i);
   if (m) dateStr = String(parseInt(m[1])).padStart(2,'0') + '-' + m[2].slice(0,3) + '-' + m[3].slice(-2);
   const isEC = b.source === 'EC';
-  const bg = isEC ? '#f0ebe3' : '#edf2f8';
-  const border = isEC ? '#c4956a' : '#4a7ab5';
-  const srcColor = isEC ? '#8b6d4e' : '#4a7ab5';
-  const linkColor = isEC ? '#5a4a3a' : '#2c5282';
+  const isYT = b.source === 'YT';
+  // YouTube bookmarks share the earnings-call warm tan palette since
+  // YT outputs use the same Reader style. Only expert calls get the blue.
+  const isWarm = isEC || isYT;
+  const bg = isWarm ? '#f0ebe3' : '#edf2f8';
+  const border = isWarm ? '#c4956a' : '#4a7ab5';
+  const srcColor = isWarm ? '#8b6d4e' : '#4a7ab5';
+  const linkColor = isWarm ? '#5a4a3a' : '#2c5282';
   const localUrl = '/output/' + b.filename;
   const srcLink = b.url ? `<a href="${b.url}" target="_blank" style="color:${srcColor};text-decoration:none" title="Open original source">${b.source || ''}</a>` : (b.source || '');
   return `<tr><td class="bk-cell-title" style="background:${bg};border-left:3px solid ${border}"><a href="${localUrl}" target="_blank" style="color:${linkColor}">${b.title}</a>${b.expert ? `<div class="bk-expert">${b.expert}</div>` : ''}</td><td class="bk-cell-src" style="background:${bg}">${srcLink}</td><td class="bk-cell-date" style="background:${bg}">${dateStr}</td><td class="bk-cell-remove" style="background:${bg}"><a href="/bookmark/remove?filename=${encodeURIComponent(b.filename)}" title="Remove">✕</a></td></tr>`;
