@@ -2,6 +2,7 @@ const express = require('express');
 const { spawn, exec } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const yt = require('./youtube-helpers');
 
 const app = express();
 app.use(express.json({ limit: '5mb' }));
@@ -326,16 +327,24 @@ app.post('/summarize', async (req, res) => {
         child.stdout.on('data', d => chunks.push(d));
         child.stderr.on('data', d => errChunks.push(d));
         child.on('close', code => {
+          const stderr = Buffer.concat(errChunks).toString();
+          if (stderr) log(`Job ${jobId} stderr: ${stderr.slice(0, 500)}`);
           if (code !== 0) {
-            reject(new Error(`Claude exited ${code}: ${Buffer.concat(errChunks).toString()}`));
+            reject(new Error(`Claude exited ${code}: ${stderr}`));
           } else {
             resolve(Buffer.concat(chunks).toString());
           }
         });
         child.on('error', err => reject(err));
+        log(`Job ${jobId}: prompt size ${fullPrompt.length} chars`);
         child.stdin.write(fullPrompt);
         child.stdin.end();
       });
+
+      // Validate output
+      if (!html || (!html.includes('<!DOCTYPE') && !html.includes('<html'))) {
+        throw new Error(`Empty or invalid HTML output (${html.length} chars). First 200: ${html.slice(0, 200)}`);
+      }
 
       const sanitized = (company || 'UNKNOWN')
         .replace(/[^a-zA-Z0-9]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '').toUpperCase();
@@ -375,9 +384,10 @@ app.post('/summarize', async (req, res) => {
 
 // Expert transcript summarization
 const EXPERT_PROMPT_PATH = path.resolve(__dirname, 'prompt-expert.txt');
+const PROMPT_YT_PATH = path.resolve(__dirname, 'prompt-youtube.txt');
 
 app.post('/summarize-expert', async (req, res) => {
-  const { title, transcript, primaryCompany, interviewDate, expertPerspective, source, sourceUrl } = req.body;
+  const { title, transcript, primaryCompany, interviewDate, expertPerspective, expertBio, source, sourceUrl } = req.body;
   const model = req.body.model || settings.model || 'opus';
 
   if (!transcript || transcript.length < 200) {
@@ -388,6 +398,7 @@ app.post('/summarize-expert', async (req, res) => {
   let header = `Expert Interview: ${title || 'Unknown'}\n`;
   if (primaryCompany) header += `Primary Company: ${primaryCompany}\n`;
   if (expertPerspective) header += `Expert: ${expertPerspective}\n`;
+  if (expertBio) header += `Expert Bio: ${expertBio}\n`;
   if (interviewDate) header += `Interview Date: ${interviewDate}\n`;
   if (source) header += `Source: ${source}\n`;
   if (sourceUrl) header += `Source URL: ${sourceUrl}\n`;
@@ -441,16 +452,24 @@ app.post('/summarize-expert', async (req, res) => {
         child.stdout.on('data', d => chunks.push(d));
         child.stderr.on('data', d => errChunks.push(d));
         child.on('close', code => {
+          const stderr = Buffer.concat(errChunks).toString();
+          if (stderr) log(`Job ${jobId} stderr: ${stderr.slice(0, 500)}`);
           if (code !== 0) {
-            reject(new Error(`Claude exited ${code}: ${Buffer.concat(errChunks).toString()}`));
+            reject(new Error(`Claude exited ${code}: ${stderr}`));
           } else {
             resolve(Buffer.concat(chunks).toString());
           }
         });
         child.on('error', err => reject(err));
+        log(`Job ${jobId}: prompt size ${fullPrompt.length} chars`);
         child.stdin.write(fullPrompt);
         child.stdin.end();
       });
+
+      // Validate output
+      if (!html || (!html.includes('<!DOCTYPE') && !html.includes('<html'))) {
+        throw new Error(`Empty or invalid HTML output (${html.length} chars). First 200: ${html.slice(0, 200)}`);
+      }
 
       // Generate filename from title or company
       const nameSource = primaryCompany || title || 'EXPERT';
@@ -513,6 +532,104 @@ app.post('/summarize-expert', async (req, res) => {
       jobs.set(jobId, { status: 'done', filename, company: completedLabel, quarter: '', year: '', timeSeconds: parseFloat(totalTime) });
     } catch (error) {
       log(`ERROR Expert summarization failed: ${error.message}`);
+      const idx = activeJobs.findIndex(j => j.jobId === jobId); if (idx >= 0) activeJobs.splice(idx, 1);
+      jobs.set(jobId, { status: 'error', error: error.message, company: label, quarter: '', year: '' });
+    }
+  }, label);
+});
+
+// YouTube transcript reader
+app.post('/summarize-youtube', async (req, res) => {
+  const body = req.body || {};
+  if (!Array.isArray(body.transcript) || body.transcript.length === 0) {
+    return res.status(400).json({ success: false, error: 'Missing transcript' });
+  }
+  if (!body.title || typeof body.title !== 'string') {
+    return res.status(400).json({ success: false, error: 'Missing title' });
+  }
+  if (typeof body.watchUrl !== 'string') {
+    return res.status(400).json({ success: false, error: 'Missing watchUrl' });
+  }
+
+  const verbosity = Number(body.verbosity) || 180;
+  const lockedModel = body.model || settings.model || 'opus';
+  const label = `[YT] ${body.title.length > 80 ? body.title.slice(0, 77) + '...' : body.title}`;
+
+  log(`POST /summarize-youtube: "${body.title}" channel=${body.channel || 'none'} ` +
+      `(transcript entries: ${body.transcript.length}, verbosity: ${verbosity}, model: ${lockedModel})`);
+
+  const jobId = String(++jobCounter);
+  jobs.set(jobId, { status: 'queued', company: label, quarter: '', year: '' });
+
+  const position = queue.length + activeWorkers;
+  if (position > 0) log(`Queued: ${label} (position ${position + 1})`);
+
+  res.json({ success: true, jobId, queued: position > 0 });
+
+  enqueue(async () => {
+    const startTime = Date.now();
+    const jobEntry = { company: label, quarter: '', year: '', startTime, jobId };
+    activeJobs.push(jobEntry);
+    jobs.set(jobId, { status: 'processing', company: label, quarter: '', year: '' });
+    log(`Cleaning up YouTube transcript: ${label} [model=${lockedModel}]`);
+
+    try {
+      const promptTemplate = fs.readFileSync(PROMPT_YT_PATH, 'utf-8');
+      const claudeInput = yt.buildClaudeInput(promptTemplate, { ...body, verbosity });
+      log(`Job ${jobId}: prompt size ${claudeInput.length} chars`);
+
+      const bodyFragment = await new Promise((resolve, reject) => {
+        const chunks = [];
+        const errChunks = [];
+        const child = spawn('claude', ['-p', '--output-format', 'text', '--tools', '', '--model', lockedModel], {
+          stdio: ['pipe', 'pipe', 'pipe'],
+          timeout: 300000
+        });
+        child.stdout.on('data', d => chunks.push(d));
+        child.stderr.on('data', d => errChunks.push(d));
+        child.on('close', code => {
+          const stderr = Buffer.concat(errChunks).toString();
+          if (stderr) log(`Job ${jobId} stderr: ${stderr.slice(0, 500)}`);
+          if (code !== 0) {
+            reject(new Error(`Claude exited ${code}: ${stderr}`));
+          } else {
+            resolve(Buffer.concat(chunks).toString());
+          }
+        });
+        child.on('error', err => reject(err));
+        child.stdin.write(claudeInput);
+        child.stdin.end();
+      });
+
+      // Validate: body fragment must start with <h3 or <p (per prompt spec)
+      const trimmed = bodyFragment.trim();
+      if (!trimmed || !(trimmed.startsWith('<h3') || trimmed.startsWith('<p'))) {
+        throw new Error(`Claude returned non-fragment output (${bodyFragment.length} chars). First 300: ${bodyFragment.slice(0, 300)}`);
+      }
+
+      const meta = {
+        title: body.title,
+        channel: body.channel || '',
+        uploadDate: body.uploadDate || '',
+        durationSec: Number(body.durationSec) || 0,
+        thumbnailUrl: body.thumbnailUrl || '',
+        watchUrl: body.watchUrl,
+      };
+      const finalHtml = yt.renderYouTubeOutput(meta, trimmed);
+
+      const dateStr = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+      const { filename, outputPath } = uniqueFilename(OUTPUT_DIR, `yt-${dateStr}-${yt.slugify(body.title)}.html`);
+      fs.writeFileSync(outputPath, finalHtml, 'utf-8');
+
+      const totalTime = ((Date.now() - startTime) / 1000).toFixed(1);
+      log(`Saved: ${outputPath} (${totalTime}s) [${queue.length} remaining in queue]`);
+      completedJobs.push({ company: label, quarter: '', year: '', timeSeconds: parseFloat(totalTime), date: new Date().toISOString(), filename });
+      try { fs.writeFileSync(LOG_PATH, JSON.stringify(completedJobs, null, 2)); } catch (e) {}
+      const idx = activeJobs.findIndex(j => j.jobId === jobId); if (idx >= 0) activeJobs.splice(idx, 1);
+
+      jobs.set(jobId, { status: 'done', filename, company: label, quarter: '', year: '', timeSeconds: parseFloat(totalTime) });
+    } catch (error) {
+      log(`ERROR YouTube cleanup failed: ${error.message}`);
       const idx = activeJobs.findIndex(j => j.jobId === jobId); if (idx >= 0) activeJobs.splice(idx, 1);
       jobs.set(jobId, { status: 'error', error: error.message, company: label, quarter: '', year: '' });
     }
