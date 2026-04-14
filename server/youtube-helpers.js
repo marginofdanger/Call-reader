@@ -90,7 +90,30 @@ function normalizeChapters(rawChapters) {
   return out;
 }
 
+function buildClaudeInput(prompt, payload) {
+  const meta = {
+    title: payload.title || '',
+    channel: payload.channel || '',
+    uploadDate: payload.uploadDate || '',
+    durationSec: Number(payload.durationSec) || 0,
+    watchUrl: payload.watchUrl || '',
+    chapters: Array.isArray(payload.chapters) ? payload.chapters : [],
+    verbosity: Number(payload.verbosity) || 180,
+  };
+  const transcript = Array.isArray(payload.transcript) ? payload.transcript : [];
+  const lines = transcript.map(entry => `[${formatMmSs(entry.startMs)}] ${entry.text}`);
+  return [
+    prompt,
+    '',
+    'METADATA:',
+    JSON.stringify(meta, null, 2),
+    '',
+    'TRANSCRIPT:',
+    lines.join('\n'),
+  ].join('\n');
+}
+
 module.exports = {
   htmlEscape, slugify, formatDuration, formatUploadDate,
-  resolveCaptionTrack, formatMmSs, normalizeChapters,
+  resolveCaptionTrack, formatMmSs, normalizeChapters, buildClaudeInput,
 };

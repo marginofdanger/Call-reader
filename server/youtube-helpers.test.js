@@ -161,3 +161,44 @@ test('normalizeChapters skips malformed entries', () => {
   ];
   assert.deepEqual(normalizeChapters(raw), [{ title: 'Good', startMs: 0 }]);
 });
+
+const { buildClaudeInput } = require('./youtube-helpers');
+
+test('buildClaudeInput includes the prompt followed by a JSON metadata block', () => {
+  const prompt = 'You are a transcript editor.';
+  const payload = {
+    title: 'T', channel: 'C', uploadDate: '2026-04-02', durationSec: 600,
+    watchUrl: 'https://youtube.com/watch?v=x',
+    chapters: [{ title: 'Intro', startMs: 0 }],
+    transcript: [{ startMs: 0, text: 'hello world' }, { startMs: 3500, text: 'again' }],
+    verbosity: 180,
+  };
+  const out = buildClaudeInput(prompt, payload);
+  assert.ok(out.startsWith('You are a transcript editor.'));
+  assert.ok(out.includes('"title": "T"'));
+  assert.ok(out.includes('"verbosity": 180'));
+});
+
+test('buildClaudeInput formats transcript lines with [mm:ss] prefix', () => {
+  const payload = {
+    title: 'T', channel: 'C', uploadDate: '', durationSec: 0, watchUrl: '',
+    chapters: [],
+    transcript: [
+      { startMs: 0, text: 'hello' },
+      { startMs: 90000, text: 'minute and a half in' },
+    ],
+    verbosity: 180,
+  };
+  const out = buildClaudeInput('PROMPT', payload);
+  assert.ok(out.includes('[00:00] hello'));
+  assert.ok(out.includes('[01:30] minute and a half in'));
+});
+
+test('buildClaudeInput handles empty chapters and transcript arrays', () => {
+  const out = buildClaudeInput('P', {
+    title: '', channel: '', uploadDate: '', durationSec: 0, watchUrl: '',
+    chapters: [], transcript: [], verbosity: 100,
+  });
+  assert.ok(out.includes('"chapters": []'));
+  assert.ok(out.includes('TRANSCRIPT:'));
+});
