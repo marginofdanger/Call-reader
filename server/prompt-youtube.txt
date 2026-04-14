@@ -40,7 +40,7 @@ have this exact structure:
 where:
 - CHAPTER_TITLE is the chapter's title (HTML-escape &, <, >).
 - WATCH_URL is the metadata watchUrl value.
-- N is floor(startMs / 1000) — the start time in whole seconds.
+- N is floor(startMs / 1000) -- the start time in whole seconds.
 - MM:SS is the chapter start rendered as mm:ss (or h:mm:ss for chapters past
   one hour).
 
