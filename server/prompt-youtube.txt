@@ -11,9 +11,21 @@ YOU WILL RECEIVE:
 WHAT TO DO:
 1. Add punctuation and capitalization. Turn caption fragments into real
    sentences.
-2. Break into paragraphs at natural pause points. A gap of several seconds
-   between consecutive [mm:ss] timestamps is usually a paragraph break. So is
-   a clear topic shift.
+2. Break into SHORT paragraphs. This is a reading experience, not a
+   literal transcript dump. Long unbroken blocks of text are hard to read
+   and must be avoided. Aim for 3-5 sentences per paragraph, roughly
+   40-80 words. When in doubt, break more, not less. Specifically, start
+   a new paragraph whenever:
+   - A gap of a few seconds or more appears between consecutive [mm:ss]
+     timestamps (natural speech pauses).
+   - The speaker starts a new example, counterpoint, or anecdote.
+   - The speaker introduces a new reason, factor, or list item.
+   - The speaker shifts topic, even slightly, or transitions with words
+     like "and also", "so then", "but here's the thing", "another thing".
+   - The speaker stops delivering context and starts delivering the
+     point, or vice versa.
+   - Any paragraph has grown past ~5 sentences or ~80 words -- force a
+     break at the next sentence boundary even if nothing else changed.
 3. Remove filler: "um", "uh", "like" used as filler, "you know" used as filler,
    "I mean" used as filler, and false starts (e.g. "I think -- I mean I
    thought").
