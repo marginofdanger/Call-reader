@@ -146,13 +146,31 @@ async function handleYouTube(tabId) {
   // Fetch timedtext JSON
   let captions;
   try {
-    const resp = await fetch(track.baseUrl + '&fmt=json3');
+    const captionUrl = new URL(track.baseUrl);
+    captionUrl.searchParams.set('fmt', 'json3');
+    const finalUrl = captionUrl.toString();
+    console.log('YouTube: fetching captions from', finalUrl);
+    const resp = await fetch(finalUrl);
+    console.log(`YouTube: caption response ${resp.status} ${resp.statusText}, content-length=${resp.headers.get('content-length')}`);
     if (!resp.ok) {
       await setBadge('ERR', '#cc0000', tabId);
       console.error(`YouTube: caption fetch failed ${resp.status}`);
       return;
     }
-    captions = await resp.json();
+    const text = await resp.text();
+    if (!text || text.trim().length === 0) {
+      await setBadge('ERR', '#cc0000', tabId);
+      console.error('YouTube: caption response body was empty. URL:', finalUrl);
+      return;
+    }
+    console.log(`YouTube: caption response text length ${text.length}, first 200 chars: ${text.slice(0, 200)}`);
+    try {
+      captions = JSON.parse(text);
+    } catch (parseErr) {
+      await setBadge('ERR', '#cc0000', tabId);
+      console.error('YouTube: caption JSON parse error:', parseErr, 'body:', text.slice(0, 500));
+      return;
+    }
   } catch (e) {
     await setBadge('ERR', '#cc0000', tabId);
     console.error('YouTube: caption fetch error:', e);
