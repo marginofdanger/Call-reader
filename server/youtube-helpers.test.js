@@ -275,3 +275,17 @@ test('renderYouTubeOutput packs thumbnail, date, length into the sticky header',
   const matches = html.match(/Watch on YouTube/g) || [];
   assert.equal(matches.length, 1);
 });
+
+test('renderYouTubeOutput includes bookmark button with filename data attr', () => {
+  const html = renderYouTubeOutput({ ...sampleMeta, filename: 'yt-2026-04-14-test.html' }, '<p>x</p>');
+  assert.ok(html.includes('id="yt-bookmark-btn"'));
+  assert.ok(html.includes('data-filename="yt-2026-04-14-test.html"'));
+  assert.ok(html.includes('toggleYtBookmark'));
+  assert.ok(html.includes("fetch('/bookmark'"));
+  assert.ok(html.includes("fetch('/bookmarks'"));
+});
+
+test('renderYouTubeOutput bookmark button has empty data-filename if not provided', () => {
+  const html = renderYouTubeOutput(sampleMeta, '<p>x</p>');
+  assert.ok(html.includes('data-filename=""'));
+});

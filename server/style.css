@@ -185,6 +185,38 @@ header:has(.header-inner.yt) { padding: 0.75rem 1.5rem; }
 .yt-header-sub .yt-dur { color: #3d3225; font-weight: 600; }
 .yt-header-sub .yt-sep { color: #c4956a; margin: 0 0.5rem; }
 
+.yt-header-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex: 0 0 auto;
+}
+.yt-bookmark-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font: inherit;
+  font-size: 0.82rem;
+  color: #8b6d4e;
+  background: transparent;
+  border: 1px solid #c4956a;
+  padding: 0.3rem 0.75rem;
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.yt-bookmark-btn:hover { background: #f0ebe3; color: #3d3225; }
+.yt-bookmark-btn .yt-star { font-size: 1rem; line-height: 1; }
+.yt-bookmark-btn.is-bookmarked {
+  background: #c4956a;
+  color: #faf8f5;
+  border-color: #a87d5a;
+}
+.yt-bookmark-btn.is-bookmarked:hover {
+  background: #a87d5a;
+  color: #faf8f5;
+}
+
 h3.chapter {
   display: flex;
   justify-content: space-between;

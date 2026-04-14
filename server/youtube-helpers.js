@@ -120,6 +120,8 @@ function renderYouTubeOutput(meta, bodyFragment) {
   const thumbnailUrl = htmlEscape(meta.thumbnailUrl);
   const duration = htmlEscape(formatDuration(meta.durationSec));
   const uploadDate = htmlEscape(formatUploadDate(meta.uploadDate));
+  const filename = htmlEscape(meta.filename || '');
+  const rawUploadDate = htmlEscape(meta.uploadDate || '');
 
   return `<!DOCTYPE html>
 <html>
@@ -144,7 +146,19 @@ function renderYouTubeOutput(meta, bodyFragment) {
           </div>
         </div>
       </div>
-      <a class="header-link" href="${watchUrl}" target="_blank">Watch on YouTube</a>
+      <div class="yt-header-actions">
+        <button id="yt-bookmark-btn"
+                class="yt-bookmark-btn"
+                data-filename="${filename}"
+                data-title="${title}"
+                data-url="${watchUrl}"
+                data-date="${rawUploadDate}"
+                data-channel="${channel}"
+                onclick="toggleYtBookmark(this)">
+          <span class="yt-star">&#9734;</span><span class="yt-bookmark-label">Bookmark</span>
+        </button>
+        <a class="header-link" href="${watchUrl}" target="_blank">Watch on YouTube</a>
+      </div>
     </div>
   </header>
   <main>
@@ -152,6 +166,48 @@ function renderYouTubeOutput(meta, bodyFragment) {
     ${bodyFragment}
     </div>
   </main>
+  <script>
+  async function toggleYtBookmark(btn) {
+    const payload = {
+      title: btn.dataset.title,
+      url: btn.dataset.url,
+      filename: btn.dataset.filename,
+      interviewDate: btn.dataset.date,
+      source: 'YT',
+      expert: btn.dataset.channel,
+    };
+    try {
+      const resp = await fetch('/bookmark', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const result = await resp.json();
+      setYtBookmarkState(btn, !!result.bookmarked);
+    } catch (e) {
+      console.error('Bookmark toggle failed:', e);
+    }
+  }
+  function setYtBookmarkState(btn, on) {
+    btn.classList.toggle('is-bookmarked', on);
+    const star = btn.querySelector('.yt-star');
+    const label = btn.querySelector('.yt-bookmark-label');
+    if (star) star.innerHTML = on ? '&#9733;' : '&#9734;';
+    if (label) label.textContent = on ? 'Bookmarked' : 'Bookmark';
+  }
+  (async function initYtBookmarkState() {
+    const btn = document.getElementById('yt-bookmark-btn');
+    if (!btn || !btn.dataset.filename) return;
+    try {
+      const resp = await fetch('/bookmarks');
+      if (!resp.ok) return;
+      const list = await resp.json();
+      if (Array.isArray(list) && list.some(b => b && b.filename === btn.dataset.filename)) {
+        setYtBookmarkState(btn, true);
+      }
+    } catch (e) { /* offline -- leave default state */ }
+  })();
+  </script>
 </body>
 </html>
 `;

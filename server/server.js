@@ -653,6 +653,11 @@ app.post('/summarize-youtube', async (req, res) => {
         }
       }
 
+      // Reserve the filename before rendering so we can embed it in the
+      // HTML (used by the bookmark button to identify this output).
+      const dateStr = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+      const { filename, outputPath } = uniqueFilename(OUTPUT_DIR, `yt-${dateStr}-${yt.slugify(body.title)}.html`);
+
       const meta = {
         title: body.title,
         channel: body.channel || '',
@@ -660,11 +665,9 @@ app.post('/summarize-youtube', async (req, res) => {
         durationSec: Number(body.durationSec) || 0,
         thumbnailUrl: body.thumbnailUrl || '',
         watchUrl: body.watchUrl,
+        filename,
       };
       const finalHtml = yt.renderYouTubeOutput(meta, trimmed);
-
-      const dateStr = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
-      const { filename, outputPath } = uniqueFilename(OUTPUT_DIR, `yt-${dateStr}-${yt.slugify(body.title)}.html`);
       fs.writeFileSync(outputPath, finalHtml, 'utf-8');
 
       const totalTime = ((Date.now() - startTime) / 1000).toFixed(1);
@@ -695,6 +698,12 @@ app.post('/bookmark', (req, res) => {
     try { fs.writeFileSync(BOOKMARKS_PATH, JSON.stringify(bookmarks, null, 2)); } catch (e) {}
     res.json({ bookmarked: true });
   }
+});
+
+// Return the full bookmark list as JSON (used by YT output pages to
+// check if the current file is already bookmarked on load)
+app.get('/bookmarks', (req, res) => {
+  res.json(bookmarks);
 });
 
 // Remove bookmark via GET (for status page links)
