@@ -131,19 +131,23 @@ function renderYouTubeOutput(meta, bodyFragment) {
 <body>
   <header>
     <div class="header-inner">
-      <div class="header-title"><strong>${title}</strong> &nbsp; ${channel}</div>
+      <div class="header-title yt">
+        <a class="yt-header-thumb" href="${watchUrl}" target="_blank"><img src="${thumbnailUrl}" alt=""></a>
+        <div class="yt-header-text">
+          <strong title="${title}">${title}</strong>
+          <div class="yt-header-sub">
+            <span class="yt-channel">${channel}</span>
+            <span class="yt-sep">&middot;</span>
+            <span class="yt-date">${uploadDate}</span>
+            <span class="yt-sep">&middot;</span>
+            <span class="yt-dur">${duration}</span>
+          </div>
+        </div>
+      </div>
       <a class="header-link" href="${watchUrl}" target="_blank">Watch on YouTube</a>
     </div>
   </header>
   <main>
-    <div class="yt-meta-card">
-      <a href="${watchUrl}" target="_blank"><img src="${thumbnailUrl}" alt=""></a>
-      <div class="yt-meta-body">
-        <div class="yt-meta-title">${title}</div>
-        <div class="yt-meta-sub">${channel} · ${uploadDate} · ${duration}</div>
-        <div class="yt-meta-url">${watchUrl}</div>
-      </div>
-    </div>
     <div class="yt-body">
     ${bodyFragment}
     </div>

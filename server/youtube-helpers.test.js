@@ -247,7 +247,8 @@ test('renderYouTubeOutput includes the body fragment inside <main>', () => {
   const between = html.slice(mainOpen, mainClose);
   assert.ok(between.includes('<h3 class="chapter">X</h3>'));
   assert.ok(between.includes('<p>y</p>'));
-  assert.ok(between.includes('yt-meta-card'));
+  // No more duplicate meta card in <main> -- everything is in the sticky header
+  assert.ok(!between.includes('yt-meta-card'));
 });
 
 test('renderYouTubeOutput wraps body fragment in .yt-body', () => {
@@ -258,4 +259,19 @@ test('renderYouTubeOutput wraps body fragment in .yt-body', () => {
   const after = html.slice(bodyOpen);
   assert.ok(after.includes('<p class="q">why?</p>'));
   assert.ok(after.includes('<p>because</p>'));
+});
+
+test('renderYouTubeOutput packs thumbnail, date, length into the sticky header', () => {
+  const html = renderYouTubeOutput(sampleMeta, '<p>x</p>');
+  const headerOpen = html.indexOf('<header>');
+  const headerClose = html.indexOf('</header>');
+  const between = html.slice(headerOpen, headerClose);
+  assert.ok(between.includes(sampleMeta.thumbnailUrl));
+  assert.ok(between.includes('1h 47m'));
+  assert.ok(between.includes('Apr 2, 2026'));
+  assert.ok(between.includes(sampleMeta.channel));
+  assert.ok(between.includes('Watch on YouTube'));
+  // Only one Watch on YouTube anywhere in the doc
+  const matches = html.match(/Watch on YouTube/g) || [];
+  assert.equal(matches.length, 1);
 });
