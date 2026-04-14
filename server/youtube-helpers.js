@@ -113,7 +113,46 @@ function buildClaudeInput(prompt, payload) {
   ].join('\n');
 }
 
+function renderYouTubeOutput(meta, bodyFragment) {
+  const title = htmlEscape(meta.title);
+  const channel = htmlEscape(meta.channel);
+  const watchUrl = htmlEscape(meta.watchUrl);
+  const thumbnailUrl = htmlEscape(meta.thumbnailUrl);
+  const duration = htmlEscape(formatDuration(meta.durationSec));
+  const uploadDate = htmlEscape(formatUploadDate(meta.uploadDate));
+
+  return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>${title}</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header>
+    <div class="header-inner">
+      <div class="header-title"><strong>${title}</strong> &nbsp; ${channel}</div>
+      <a class="header-link" href="${watchUrl}" target="_blank">Watch on YouTube</a>
+    </div>
+  </header>
+  <main>
+    <div class="yt-meta-card">
+      <a href="${watchUrl}" target="_blank"><img src="${thumbnailUrl}" alt=""></a>
+      <div class="yt-meta-body">
+        <div class="yt-meta-title">${title}</div>
+        <div class="yt-meta-sub">${channel} · ${uploadDate} · ${duration}</div>
+        <div class="yt-meta-url">${watchUrl}</div>
+      </div>
+    </div>
+    ${bodyFragment}
+  </main>
+</body>
+</html>
+`;
+}
+
 module.exports = {
   htmlEscape, slugify, formatDuration, formatUploadDate,
   resolveCaptionTrack, formatMmSs, normalizeChapters, buildClaudeInput,
+  renderYouTubeOutput,
 };

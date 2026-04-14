@@ -202,3 +202,50 @@ test('buildClaudeInput handles empty chapters and transcript arrays', () => {
   assert.ok(out.includes('"chapters": []'));
   assert.ok(out.includes('TRANSCRIPT:'));
 });
+
+const { renderYouTubeOutput } = require('./youtube-helpers');
+
+const sampleMeta = {
+  title: 'The GPU Economics of Frontier Labs',
+  channel: 'Dwarkesh Podcast',
+  uploadDate: '2026-04-02',
+  durationSec: 6420,
+  thumbnailUrl: 'https://i.ytimg.com/vi/abc/maxres.jpg',
+  watchUrl: 'https://www.youtube.com/watch?v=abc',
+};
+
+test('renderYouTubeOutput produces a full HTML document', () => {
+  const html = renderYouTubeOutput(sampleMeta, '<p>hello</p>');
+  assert.ok(html.startsWith('<!DOCTYPE html>'));
+  assert.ok(html.includes('<link rel="stylesheet" href="/style.css">'));
+  assert.ok(html.includes('</html>'));
+});
+
+test('renderYouTubeOutput interpolates title, channel, duration, url', () => {
+  const html = renderYouTubeOutput(sampleMeta, '<p>x</p>');
+  assert.ok(html.includes('The GPU Economics of Frontier Labs'));
+  assert.ok(html.includes('Dwarkesh Podcast'));
+  assert.ok(html.includes('1h 47m'));
+  assert.ok(html.includes('Apr 2, 2026'));
+  assert.ok(html.includes('https://www.youtube.com/watch?v=abc'));
+  assert.ok(html.includes('https://i.ytimg.com/vi/abc/maxres.jpg'));
+});
+
+test('renderYouTubeOutput HTML-escapes metadata fields but not the body fragment', () => {
+  const meta = { ...sampleMeta, title: 'A & B <c>', channel: '"quoted"' };
+  const body = '<p>raw &amp; already-escaped</p>';
+  const html = renderYouTubeOutput(meta, body);
+  assert.ok(html.includes('A &amp; B &lt;c&gt;'));
+  assert.ok(html.includes('&quot;quoted&quot;'));
+  assert.ok(html.includes('<p>raw &amp; already-escaped</p>'));
+});
+
+test('renderYouTubeOutput includes the body fragment inside <main>', () => {
+  const html = renderYouTubeOutput(sampleMeta, '<h3 class="chapter">X</h3><p>y</p>');
+  const mainOpen = html.indexOf('<main>');
+  const mainClose = html.indexOf('</main>');
+  const between = html.slice(mainOpen, mainClose);
+  assert.ok(between.includes('<h3 class="chapter">X</h3>'));
+  assert.ok(between.includes('<p>y</p>'));
+  assert.ok(between.includes('yt-meta-card'));
+});
