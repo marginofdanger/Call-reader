@@ -543,6 +543,37 @@ app.post('/summarize-expert', async (req, res) => {
   }, label);
 });
 
+// Build a raw YouTube body fragment (no Claude) by dumping each scraped
+// transcript segment as a timestamped <p>. Used when body.raw === true
+// for quick scrape verification.
+function buildRawYouTubeBody(body) {
+  const transcript = Array.isArray(body.transcript) ? body.transcript : [];
+  const chapters = Array.isArray(body.chapters) ? body.chapters.slice() : [];
+  chapters.sort((a, b) => (a.startMs || 0) - (b.startMs || 0));
+  const watchUrl = String(body.watchUrl || '');
+  const parts = [];
+  let chapterIdx = 0;
+  for (const seg of transcript) {
+    const startMs = Number(seg.startMs) || 0;
+    while (chapterIdx < chapters.length && chapters[chapterIdx].startMs <= startMs) {
+      const ch = chapters[chapterIdx];
+      const startSec = Math.floor((Number(ch.startMs) || 0) / 1000);
+      const mmss = yt.formatMmSs(ch.startMs);
+      parts.push(
+        `<h3 class="chapter"><span>${yt.htmlEscape(ch.title)}</span>` +
+        `<a href="${yt.htmlEscape(watchUrl)}&t=${startSec}s">&#x21AA; ${mmss}</a></h3>`
+      );
+      chapterIdx++;
+    }
+    const mmss = yt.formatMmSs(startMs);
+    const text = yt.htmlEscape(String(seg.text || '').trim());
+    if (text) {
+      parts.push(`<p><span style="color:#8b6d4e;font-size:0.85em;">[${mmss}]</span> ${text}</p>`);
+    }
+  }
+  return parts.join('\n');
+}
+
 // YouTube transcript reader
 app.post('/summarize-youtube', async (req, res) => {
   const body = req.body || {};
@@ -579,37 +610,43 @@ app.post('/summarize-youtube', async (req, res) => {
     log(`Cleaning up YouTube transcript: ${label} [model=${lockedModel}]`);
 
     try {
-      const promptTemplate = fs.readFileSync(PROMPT_YT_PATH, 'utf-8');
-      const claudeInput = yt.buildClaudeInput(promptTemplate, { ...body, verbosity });
-      log(`Job ${jobId}: prompt size ${claudeInput.length} chars`);
+      let trimmed;
+      if (body.raw === true) {
+        log(`Job ${jobId}: RAW mode -- skipping Claude, dumping scraped transcript as-is`);
+        trimmed = buildRawYouTubeBody(body);
+      } else {
+        const promptTemplate = fs.readFileSync(PROMPT_YT_PATH, 'utf-8');
+        const claudeInput = yt.buildClaudeInput(promptTemplate, { ...body, verbosity });
+        log(`Job ${jobId}: prompt size ${claudeInput.length} chars`);
 
-      const bodyFragment = await new Promise((resolve, reject) => {
-        const chunks = [];
-        const errChunks = [];
-        const child = spawn('claude', ['-p', '--output-format', 'text', '--tools', '', '--model', lockedModel], {
-          stdio: ['pipe', 'pipe', 'pipe'],
-          timeout: 300000
+        const bodyFragment = await new Promise((resolve, reject) => {
+          const chunks = [];
+          const errChunks = [];
+          const child = spawn('claude', ['-p', '--output-format', 'text', '--tools', '', '--model', lockedModel], {
+            stdio: ['pipe', 'pipe', 'pipe'],
+            timeout: 300000
+          });
+          child.stdout.on('data', d => chunks.push(d));
+          child.stderr.on('data', d => errChunks.push(d));
+          child.on('close', code => {
+            const stderr = Buffer.concat(errChunks).toString();
+            if (stderr) log(`Job ${jobId} stderr: ${stderr.slice(0, 500)}`);
+            if (code !== 0) {
+              reject(new Error(`Claude exited ${code}: ${stderr}`));
+            } else {
+              resolve(Buffer.concat(chunks).toString());
+            }
+          });
+          child.on('error', err => reject(err));
+          child.stdin.write(claudeInput);
+          child.stdin.end();
         });
-        child.stdout.on('data', d => chunks.push(d));
-        child.stderr.on('data', d => errChunks.push(d));
-        child.on('close', code => {
-          const stderr = Buffer.concat(errChunks).toString();
-          if (stderr) log(`Job ${jobId} stderr: ${stderr.slice(0, 500)}`);
-          if (code !== 0) {
-            reject(new Error(`Claude exited ${code}: ${stderr}`));
-          } else {
-            resolve(Buffer.concat(chunks).toString());
-          }
-        });
-        child.on('error', err => reject(err));
-        child.stdin.write(claudeInput);
-        child.stdin.end();
-      });
 
-      // Validate: body fragment must start with <h3 or <p (per prompt spec)
-      const trimmed = bodyFragment.trim();
-      if (!trimmed || !(trimmed.startsWith('<h3') || trimmed.startsWith('<p'))) {
-        throw new Error(`Claude returned non-fragment output (${bodyFragment.length} chars). First 300: ${bodyFragment.slice(0, 300)}`);
+        // Validate: body fragment must start with <h3 or <p (per prompt spec)
+        trimmed = bodyFragment.trim();
+        if (!trimmed || !(trimmed.startsWith('<h3') || trimmed.startsWith('<p'))) {
+          throw new Error(`Claude returned non-fragment output (${bodyFragment.length} chars). First 300: ${bodyFragment.slice(0, 300)}`);
+        }
       }
 
       const meta = {
