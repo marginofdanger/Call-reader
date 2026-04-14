@@ -56,4 +56,41 @@ function resolveCaptionTrack(tracks) {
   return human || englishTracks[0];
 }
 
-module.exports = { htmlEscape, slugify, formatDuration, formatUploadDate, resolveCaptionTrack };
+function formatMmSs(ms) {
+  const totalSec = Math.max(0, Math.floor((Number(ms) || 0) / 1000));
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = totalSec % 60;
+  const pad = n => String(n).padStart(2, '0');
+  if (h > 0) return `${h}:${pad(m)}:${pad(s)}`;
+  return `${pad(m)}:${pad(s)}`;
+}
+
+function extractRunsText(titleField) {
+  if (!titleField) return null;
+  if (typeof titleField.simpleText === 'string') return titleField.simpleText;
+  if (Array.isArray(titleField.runs)) {
+    return titleField.runs.map(r => (r && r.text) || '').join('');
+  }
+  return null;
+}
+
+function normalizeChapters(rawChapters) {
+  if (!Array.isArray(rawChapters)) return [];
+  const out = [];
+  for (const entry of rawChapters) {
+    const r = entry && entry.chapterRenderer;
+    if (!r) continue;
+    const title = extractRunsText(r.title);
+    const startMs = Number(r.timeRangeStartMillis);
+    if (title && Number.isFinite(startMs)) {
+      out.push({ title, startMs });
+    }
+  }
+  return out;
+}
+
+module.exports = {
+  htmlEscape, slugify, formatDuration, formatUploadDate,
+  resolveCaptionTrack, formatMmSs, normalizeChapters,
+};

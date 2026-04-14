@@ -115,3 +115,49 @@ test('resolveCaptionTrack treats en-US, en-GB as English', () => {
   ];
   assert.equal(resolveCaptionTrack(tracks).baseUrl, 'human-gb');
 });
+
+const { formatMmSs, normalizeChapters } = require('./youtube-helpers');
+
+test('formatMmSs under one hour', () => {
+  assert.equal(formatMmSs(0), '00:00');
+  assert.equal(formatMmSs(59 * 1000), '00:59');
+  assert.equal(formatMmSs(90 * 1000), '01:30');
+});
+
+test('formatMmSs one hour or more uses h:mm:ss', () => {
+  assert.equal(formatMmSs(3600 * 1000), '1:00:00');
+  assert.equal(formatMmSs((3600 + 23 * 60 + 14) * 1000), '1:23:14');
+});
+
+test('normalizeChapters extracts title+startMs from YT chapter shape', () => {
+  const raw = [
+    { chapterRenderer: { title: { simpleText: 'Intro' }, timeRangeStartMillis: 0 } },
+    { chapterRenderer: { title: { simpleText: 'Deep dive' }, timeRangeStartMillis: 123000 } },
+  ];
+  assert.deepEqual(normalizeChapters(raw), [
+    { title: 'Intro', startMs: 0 },
+    { title: 'Deep dive', startMs: 123000 },
+  ]);
+});
+
+test('normalizeChapters handles the runs-based title shape', () => {
+  const raw = [
+    { chapterRenderer: { title: { runs: [{ text: 'Part ' }, { text: 'one' }] }, timeRangeStartMillis: 0 } },
+  ];
+  assert.deepEqual(normalizeChapters(raw), [{ title: 'Part one', startMs: 0 }]);
+});
+
+test('normalizeChapters returns empty array for null/undefined/empty', () => {
+  assert.deepEqual(normalizeChapters(null), []);
+  assert.deepEqual(normalizeChapters(undefined), []);
+  assert.deepEqual(normalizeChapters([]), []);
+});
+
+test('normalizeChapters skips malformed entries', () => {
+  const raw = [
+    { chapterRenderer: { title: { simpleText: 'Good' }, timeRangeStartMillis: 0 } },
+    { notAChapter: true },
+    { chapterRenderer: { title: null, timeRangeStartMillis: 5000 } },
+  ];
+  assert.deepEqual(normalizeChapters(raw), [{ title: 'Good', startMs: 0 }]);
+});
