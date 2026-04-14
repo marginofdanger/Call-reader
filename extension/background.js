@@ -313,7 +313,7 @@ async function handleYouTube(tabId) {
   const { ytVerbosity } = await chrome.storage.local.get('ytVerbosity');
   const verbosity = typeof ytVerbosity === 'number' ? ytVerbosity : 180;
 
-  const payload = { ...meta, chapters, transcript, verbosity, raw: true };
+  const payload = { ...meta, chapters, transcript, verbosity };
   tabsSending.add(tabId);
   sendToServer(payload, '/summarize-youtube', tabId).finally(() => tabsSending.delete(tabId));
 }
