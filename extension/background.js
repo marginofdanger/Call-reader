@@ -142,59 +142,99 @@ async function handleYouTube(tabId) {
     world: 'MAIN',
     func: async () => {
       const sleep = ms => new Promise(r => setTimeout(r, ms));
+      const diag = { tried: [], clicked: null, engagementPanels: [], segmentSelectorsFound: {} };
+
+      const SEGMENT_SELECTORS = [
+        'ytd-transcript-segment-renderer',
+        'ytd-transcript-body-renderer ytd-transcript-segment-renderer',
+        'ytd-transcript-search-panel-renderer ytd-transcript-segment-renderer',
+      ];
 
       const readSegments = () => {
-        const nodes = document.querySelectorAll('ytd-transcript-segment-renderer');
-        const out = [];
-        for (const n of nodes) {
-          const timeEl = n.querySelector('.segment-timestamp, [class*="segment-timestamp"]');
-          const textEl = n.querySelector('.segment-text, yt-formatted-string.segment-text, [class*="segment-text"]');
-          const time = timeEl ? timeEl.textContent.trim() : '';
-          const text = textEl ? textEl.textContent.trim() : '';
-          if (text) out.push({ time, text });
+        for (const sel of SEGMENT_SELECTORS) {
+          const nodes = document.querySelectorAll(sel);
+          if (nodes.length > 0) {
+            diag.segmentSelectorsFound[sel] = nodes.length;
+            const out = [];
+            for (const n of nodes) {
+              const timeEl = n.querySelector('.segment-timestamp, [class*="segment-timestamp"], div.segment-timestamp');
+              const textEl = n.querySelector('.segment-text, yt-formatted-string.segment-text, [class*="segment-text"]');
+              const time = timeEl ? timeEl.textContent.trim() : '';
+              const text = textEl ? textEl.textContent.trim() : (n.textContent || '').trim();
+              if (text) out.push({ time, text });
+            }
+            return out;
+          }
         }
-        return out;
+        return [];
+      };
+
+      const snapshotPanels = () => {
+        const panels = document.querySelectorAll('ytd-engagement-panel-section-list-renderer');
+        diag.engagementPanels = Array.from(panels).map(p => ({
+          targetId: p.getAttribute('target-id') || '',
+          visible: p.getAttribute('visibility') || p.hasAttribute('visibility-updates') || '',
+          hidden: p.hasAttribute('hidden'),
+        }));
       };
 
       // If transcript is already open, just read it.
       let segs = readSegments();
-      if (segs.length > 0) return { ok: true, segments: segs, opened: false };
+      if (segs.length > 0) return { ok: true, segments: segs, opened: false, diag };
 
       // Expand description if collapsed.
-      const expand = document.querySelector('tp-yt-paper-button#expand, #expand');
-      if (expand) { expand.click(); await sleep(150); }
+      const expand = document.querySelector('tp-yt-paper-button#expand, #expand, #description-inline-expander #expand');
+      if (expand) { diag.tried.push('clicked description expand'); expand.click(); await sleep(200); }
 
-      // Find a transcript trigger button. Try a few selectors.
-      let triggerBtn = null;
-      const candidates = [
+      // Try several ways to open the transcript panel.
+      const tryClick = (sel) => {
+        const b = document.querySelector(sel);
+        if (b) {
+          diag.tried.push(`query: ${sel}`);
+          diag.clicked = sel;
+          b.click();
+          return true;
+        }
+        return false;
+      };
+
+      let triggered = false;
+      const selectors = [
         'ytd-video-description-transcript-section-renderer button',
         'ytd-video-description-transcript-section-renderer ytd-button-renderer button',
+        'ytd-structured-description-content-renderer ytd-video-description-transcript-section-renderer button',
         'button[aria-label*="ranscript" i]',
       ];
-      for (const sel of candidates) {
-        const b = document.querySelector(sel);
-        if (b) { triggerBtn = b; break; }
+      for (const sel of selectors) {
+        if (tryClick(sel)) { triggered = true; break; }
       }
-      if (!triggerBtn) {
-        // Last resort: scan all buttons for "show transcript" text
-        const allBtns = document.querySelectorAll('button, yt-button-shape button, tp-yt-paper-button');
-        for (const b of allBtns) {
+      if (!triggered) {
+        // Scan all clickable controls for "show transcript" text
+        const allCtrls = document.querySelectorAll('button, yt-button-shape button, tp-yt-paper-button, ytd-menu-service-item-renderer, [role="menuitem"]');
+        for (const b of allCtrls) {
           const label = (b.getAttribute('aria-label') || b.textContent || '').trim();
-          if (/show transcript/i.test(label)) { triggerBtn = b; break; }
+          if (/show transcript/i.test(label)) {
+            diag.tried.push(`text scan matched: "${label.slice(0, 60)}"`);
+            diag.clicked = `text scan: ${label.slice(0, 40)}`;
+            b.click();
+            triggered = true;
+            break;
+          }
         }
       }
-      if (!triggerBtn) {
-        return { ok: false, error: 'Could not find Show transcript button' };
+      if (!triggered) {
+        snapshotPanels();
+        return { ok: false, error: 'Could not find Show transcript button', diag };
       }
-      triggerBtn.click();
 
-      // Poll for segments to appear, up to 5 seconds.
-      for (let i = 0; i < 50; i++) {
+      // Poll for segments to appear, up to 8 seconds.
+      for (let i = 0; i < 80; i++) {
         await sleep(100);
         segs = readSegments();
-        if (segs.length > 0) return { ok: true, segments: segs, opened: true };
+        if (segs.length > 0) return { ok: true, segments: segs, opened: true, diag };
       }
-      return { ok: false, error: 'Transcript panel did not populate within 5s' };
+      snapshotPanels();
+      return { ok: false, error: 'Transcript panel did not populate within 8s', diag };
     },
   });
 
@@ -206,10 +246,10 @@ async function handleYouTube(tabId) {
   }
   if (!scrapeResult.ok) {
     await setBadge('ERR', '#cc0000', tabId);
-    console.error('YouTube: transcript scrape failed:', scrapeResult.error);
+    console.error('YouTube: transcript scrape failed:', scrapeResult.error, 'diag:', scrapeResult.diag);
     return;
   }
-  console.log(`YouTube: scraped ${scrapeResult.segments.length} transcript segments`);
+  console.log(`YouTube: scraped ${scrapeResult.segments.length} transcript segments`, 'diag:', scrapeResult.diag);
 
   // Parse "H:MM:SS" / "M:SS" timestamps to ms.
   const transcript = [];
