@@ -11,6 +11,21 @@ const PORT = 3210;
 const OUTPUT_DIR = path.resolve(__dirname, '..', 'output');
 const PROMPT_PATH = path.resolve(__dirname, 'prompt.txt');
 const SERVER_LOG = path.resolve(__dirname, 'server.log');
+const STYLE_CSS_PATH = path.resolve(__dirname, 'style.css');
+
+// Sharing: published copies go to this local git repo, get committed,
+// pushed, and become public at SHARE_BASE_URL/<filename>. Override via
+// environment variables if the layout differs.
+const SHARE_REPO_PATH = process.env.READER_SHARE_REPO
+  || path.resolve(__dirname, '..', '..', 'marginofdanger.github.io');
+const SHARE_SUBDIR = process.env.READER_SHARE_SUBDIR || 'shares';
+const SHARE_BASE_URL = process.env.READER_SHARE_BASE_URL
+  || 'https://marginofdanger.github.io/shares';
+
+function readStyleCss() {
+  try { return fs.readFileSync(STYLE_CSS_PATH, 'utf-8'); }
+  catch (e) { return ''; }
+}
 
 function log(msg) {
   const line = `[${new Date().toISOString()}] ${msg}`;
@@ -670,6 +685,7 @@ app.post('/summarize-youtube', async (req, res) => {
         thumbnailUrl: body.thumbnailUrl || '',
         watchUrl: body.watchUrl,
         filename,
+        inlineCss: readStyleCss(),
       };
       const finalHtml = yt.renderYouTubeOutput(meta, trimmed);
       fs.writeFileSync(outputPath, finalHtml, 'utf-8');
@@ -708,6 +724,74 @@ app.post('/bookmark', (req, res) => {
 // check if the current file is already bookmarked on load)
 app.get('/bookmarks', (req, res) => {
   res.json(bookmarks);
+});
+
+// Publish an output file to the share repo (marginofdanger.github.io/shares)
+// and return a public URL. Called from the Share button on YT output pages.
+app.post('/share', (req, res) => {
+  const filename = (req.body && req.body.filename) || '';
+  if (!filename || typeof filename !== 'string' || filename.includes('/') || filename.includes('\\') || filename.includes('..')) {
+    return res.status(400).json({ ok: false, error: 'Invalid filename' });
+  }
+  const srcPath = path.join(OUTPUT_DIR, filename);
+  if (!fs.existsSync(srcPath)) {
+    return res.status(404).json({ ok: false, error: 'Output file not found' });
+  }
+  if (!fs.existsSync(SHARE_REPO_PATH)) {
+    return res.status(500).json({ ok: false, error: `Share repo not found at ${SHARE_REPO_PATH}` });
+  }
+
+  try {
+    const shareDir = path.join(SHARE_REPO_PATH, SHARE_SUBDIR);
+    if (!fs.existsSync(shareDir)) fs.mkdirSync(shareDir, { recursive: true });
+
+    // Read source HTML and ensure the stylesheet is inlined. Old output
+    // files link /style.css which only exists on localhost; replace the
+    // link tag with an embedded <style> block so the shared copy is
+    // self-contained.
+    let html = fs.readFileSync(srcPath, 'utf-8');
+    if (html.includes('<link rel="stylesheet" href="/style.css">')) {
+      const css = readStyleCss();
+      html = html.replace(
+        '<link rel="stylesheet" href="/style.css">',
+        `<style>\n${css}\n</style>`
+      );
+    }
+
+    const destPath = path.join(shareDir, filename);
+    fs.writeFileSync(destPath, html, 'utf-8');
+
+    // Commit and push from the share repo. Use execSync so the client
+    // gets a definitive ok/error response; this is a rare manual action
+    // so blocking briefly is fine.
+    const cwd = SHARE_REPO_PATH;
+    const relPath = path.posix.join(SHARE_SUBDIR, filename);
+    const { execSync } = require('child_process');
+    try {
+      execSync(`git add "${relPath}"`, { cwd, stdio: 'pipe' });
+      // If nothing changed, git commit will exit non-zero -- detect and
+      // treat as a no-op success (file already shared identically).
+      try {
+        execSync(`git commit -m "share: ${filename}"`, { cwd, stdio: 'pipe' });
+      } catch (e) {
+        const msg = (e && e.stderr && e.stderr.toString()) || (e && e.stdout && e.stdout.toString()) || '';
+        if (!/nothing to commit/i.test(msg)) throw e;
+      }
+      execSync('git push origin HEAD', { cwd, stdio: 'pipe', timeout: 60000 });
+    } catch (gitErr) {
+      const detail = (gitErr && gitErr.stderr && gitErr.stderr.toString())
+        || (gitErr && gitErr.message) || String(gitErr);
+      log(`Share git error for ${filename}: ${detail.slice(0, 500)}`);
+      return res.status(500).json({ ok: false, error: `git push failed: ${detail.slice(0, 200)}` });
+    }
+
+    const url = `${SHARE_BASE_URL}/${encodeURIComponent(filename)}`;
+    log(`Shared ${filename} -> ${url}`);
+    res.json({ ok: true, url });
+  } catch (e) {
+    log(`Share error for ${filename}: ${e.message}`);
+    res.status(500).json({ ok: false, error: e.message });
+  }
 });
 
 // Remove bookmark via GET (for status page links)

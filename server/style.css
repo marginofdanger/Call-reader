@@ -187,9 +187,10 @@ header:has(.header-inner.yt) { padding: 0.75rem 1rem; }
   align-items: center;
   flex: 0 0 auto;
 }
-/* Shared box shape for the star + YT buttons so they're visually
-   identical. Applies to both the <button> bookmark and the <a> link. */
+/* Shared box shape for the star + share + YT buttons so they're
+   visually identical. Applies to both the <button>s and the <a> link. */
 .yt-header-actions .yt-bookmark-btn,
+.yt-header-actions .yt-share-btn,
 .yt-header-actions .header-link {
   display: inline-flex;
   align-items: center;
@@ -210,7 +211,10 @@ header:has(.header-inner.yt) { padding: 0.75rem 1rem; }
   cursor: pointer;
 }
 .yt-header-actions .yt-bookmark-btn { font-size: 1rem; }
+.yt-header-actions .yt-share-btn { font-size: 1.05rem; }
+.yt-header-actions .yt-share-btn:disabled { opacity: 0.6; cursor: default; }
 .yt-header-actions .yt-bookmark-btn:hover,
+.yt-header-actions .yt-share-btn:hover,
 .yt-header-actions .header-link:hover {
   background: #f0ebe3;
   color: #3d3225;

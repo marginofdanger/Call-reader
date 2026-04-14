@@ -122,13 +122,19 @@ function renderYouTubeOutput(meta, bodyFragment) {
   const uploadDate = htmlEscape(formatUploadDate(meta.uploadDate));
   const filename = htmlEscape(meta.filename || '');
   const rawUploadDate = htmlEscape(meta.uploadDate || '');
+  // If meta.inlineCss is provided, embed the stylesheet directly so the
+  // output file is self-contained (safe to share / host anywhere).
+  // Otherwise fall back to linking /style.css on the local server.
+  const styleTag = meta.inlineCss
+    ? `<style>\n${meta.inlineCss}\n</style>`
+    : `<link rel="stylesheet" href="/style.css">`;
 
   return `<!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8">
   <title>${title}</title>
-  <link rel="stylesheet" href="/style.css">
+  ${styleTag}
 </head>
 <body>
   <header>
@@ -157,6 +163,12 @@ function renderYouTubeOutput(meta, bodyFragment) {
                 data-date="${rawUploadDate}"
                 data-channel="${channel}"
                 onclick="toggleYtBookmark(this)">&#9734;</button>
+        <button id="yt-share-btn"
+                class="yt-share-btn"
+                title="Share"
+                aria-label="Share"
+                data-filename="${filename}"
+                onclick="shareYtPage(this)">&#8599;</button>
         <a class="header-link" href="${watchUrl}" target="_blank" title="Watch on YouTube" aria-label="Watch on YouTube">YT</a>
       </div>
     </div>
@@ -205,6 +217,45 @@ function renderYouTubeOutput(meta, bodyFragment) {
         setYtBookmarkState(btn, true);
       }
     } catch (e) { /* offline -- leave default state */ }
+  })();
+
+  async function shareYtPage(btn) {
+    const original = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '&hellip;';
+    try {
+      const resp = await fetch('/share', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filename: btn.dataset.filename }),
+      });
+      const result = await resp.json();
+      if (!result.ok) throw new Error(result.error || 'Share failed');
+      try { await navigator.clipboard.writeText(result.url); } catch (e) {}
+      btn.innerHTML = '&#10003;';
+      btn.title = 'Copied ' + result.url;
+      setTimeout(() => { btn.innerHTML = original; btn.disabled = false; btn.title = 'Share'; }, 2500);
+    } catch (e) {
+      console.error('Share failed:', e);
+      btn.innerHTML = '!';
+      btn.title = 'Share failed: ' + (e && e.message || e);
+      setTimeout(() => { btn.innerHTML = original; btn.disabled = false; btn.title = 'Share'; }, 3000);
+    }
+  }
+
+  // When the page is viewed from somewhere other than the local Reader
+  // server (e.g. a shared copy on GitHub Pages), hide the interactive
+  // buttons whose endpoints only exist on localhost.
+  (function hideLocalOnlyControls() {
+    const host = location.hostname;
+    const isLocal = host === 'localhost' || host === '127.0.0.1' || host === '';
+    if (isLocal) return;
+    const actions = document.querySelector('.yt-header-actions');
+    if (!actions) return;
+    const bookmark = actions.querySelector('#yt-bookmark-btn');
+    const share = actions.querySelector('#yt-share-btn');
+    if (bookmark) bookmark.remove();
+    if (share) share.remove();
   })();
   </script>
 </body>

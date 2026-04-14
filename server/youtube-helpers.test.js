@@ -217,8 +217,23 @@ const sampleMeta = {
 test('renderYouTubeOutput produces a full HTML document', () => {
   const html = renderYouTubeOutput(sampleMeta, '<p>hello</p>');
   assert.ok(html.startsWith('<!DOCTYPE html>'));
+  // Default (no inlineCss): link tag to /style.css
   assert.ok(html.includes('<link rel="stylesheet" href="/style.css">'));
   assert.ok(html.includes('</html>'));
+});
+
+test('renderYouTubeOutput inlines CSS when meta.inlineCss is provided', () => {
+  const html = renderYouTubeOutput({ ...sampleMeta, inlineCss: 'body { color: red; }' }, '<p>x</p>');
+  assert.ok(html.includes('<style>\nbody { color: red; }\n</style>'));
+  assert.ok(!html.includes('<link rel="stylesheet" href="/style.css">'));
+});
+
+test('renderYouTubeOutput includes a share button and hide-on-remote script', () => {
+  const html = renderYouTubeOutput(sampleMeta, '<p>x</p>');
+  assert.ok(html.includes('id="yt-share-btn"'));
+  assert.ok(html.includes('shareYtPage'));
+  assert.ok(html.includes("fetch('/share'"));
+  assert.ok(html.includes('hideLocalOnlyControls'));
 });
 
 test('renderYouTubeOutput interpolates title, channel, duration, url', () => {
