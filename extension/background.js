@@ -86,22 +86,39 @@ chrome.action.onClicked.addListener(async (tab) => {
 async function handleYouTube(tabId) {
   if (tabsSending.has(tabId)) return;
 
-  // Extract globals from the page's MAIN world
-  const scriptResults = await chrome.scripting.executeScript({
-    target: { tabId },
-    world: 'MAIN',
-    func: () => ({
-      player: window.ytInitialPlayerResponse || null,
-      initial: window.ytInitialData || null,
-    }),
-  });
-  const globals = scriptResults && scriptResults[0] && scriptResults[0].result;
-  if (!globals || !globals.player) {
+  // Get the video ID from the tab URL and fetch the watch page HTML directly.
+  // YouTube is an SPA so window.ytInitialPlayerResponse may be stale or deleted
+  // after the player initializes; the HTML source always has it embedded.
+  const tab = await chrome.tabs.get(tabId);
+  const videoId = extractVideoId(tab.url || '');
+  if (!videoId) {
     await setBadge('ERR', '#cc0000', tabId);
-    console.error('YouTube: failed to read page globals');
+    console.error('YouTube: no video id in tab URL');
     return;
   }
-  const { player, initial } = globals;
+
+  let player, initial;
+  try {
+    const resp = await fetch(`https://www.youtube.com/watch?v=${videoId}&hl=en`);
+    if (!resp.ok) {
+      await setBadge('ERR', '#cc0000', tabId);
+      console.error(`YouTube: watch page fetch failed ${resp.status}`);
+      return;
+    }
+    const html = await resp.text();
+    player = extractInlineJson(html, 'ytInitialPlayerResponse');
+    initial = extractInlineJson(html, 'ytInitialData');
+  } catch (e) {
+    await setBadge('ERR', '#cc0000', tabId);
+    console.error('YouTube: watch page fetch error:', e);
+    return;
+  }
+
+  if (!player) {
+    await setBadge('ERR', '#cc0000', tabId);
+    console.error('YouTube: could not parse ytInitialPlayerResponse from HTML');
+    return;
+  }
 
   // Resolve English caption track
   const tracks =
@@ -181,6 +198,68 @@ async function handleYouTube(tabId) {
   const payload = { ...meta, chapters, transcript, verbosity };
   tabsSending.add(tabId);
   sendToServer(payload, '/summarize-youtube', tabId).finally(() => tabsSending.delete(tabId));
+}
+
+function extractVideoId(tabUrl) {
+  try {
+    const u = new URL(tabUrl);
+    return u.searchParams.get('v');
+  } catch (e) {
+    return null;
+  }
+}
+
+function extractInlineJson(html, varName) {
+  // YouTube embeds these variables in different patterns across versions:
+  //   var ytInitialPlayerResponse = {...};
+  //   ytInitialPlayerResponse = {...};
+  //   window["ytInitialPlayerResponse"] = {...};
+  const escaped = varName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const patterns = [
+    new RegExp(`var\\s+${escaped}\\s*=\\s*`),
+    new RegExp(`window\\[["']${escaped}["']\\]\\s*=\\s*`),
+    new RegExp(`(?:^|[;\\s])${escaped}\\s*=\\s*`, 'm'),
+  ];
+  let startIdx = -1;
+  for (const p of patterns) {
+    const m = html.match(p);
+    if (m && m.index != null) {
+      // startIdx points to the opening brace of the JSON
+      const afterMatch = m.index + m[0].length;
+      if (html[afterMatch] === '{') {
+        startIdx = afterMatch;
+        break;
+      }
+    }
+  }
+  if (startIdx < 0) return null;
+
+  // Balanced-brace scan, respecting strings and escapes.
+  let depth = 0;
+  let inString = false;
+  let escapeNext = false;
+  for (let i = startIdx; i < html.length; i++) {
+    const c = html[i];
+    if (escapeNext) { escapeNext = false; continue; }
+    if (c === '\\') { escapeNext = true; continue; }
+    if (inString) {
+      if (c === '"') inString = false;
+      continue;
+    }
+    if (c === '"') { inString = true; continue; }
+    if (c === '{') depth++;
+    else if (c === '}') {
+      depth--;
+      if (depth === 0) {
+        try {
+          return JSON.parse(html.slice(startIdx, i + 1));
+        } catch (e) {
+          return null;
+        }
+      }
+    }
+  }
+  return null;
 }
 
 function extractYouTubeChapters(initial) {
