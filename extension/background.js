@@ -200,59 +200,68 @@ async function handleYouTube(tabId) {
       let segs = readSegments();
       if (segs.length > 0) { snapshotPanels(); return { ok: true, segments: segs, opened: false, diag }; }
 
-      // Expand description if collapsed.
+      // Find all transcript-like engagement panels and force them visible.
+      // YouTube uses an attribute-based visibility system rather than simple
+      // click-to-open; clicks on description buttons don't always reach the
+      // right panel, especially with the newer "In this video" merged view.
+      const panels = document.querySelectorAll('ytd-engagement-panel-section-list-renderer');
+      const transcriptPanels = Array.from(panels).filter(p => {
+        const t = p.getAttribute('target-id') || '';
+        return /transcript/i.test(t) || /in-?this-?video/i.test(t);
+      });
+      diag.tried.push(`force-visible ${transcriptPanels.length} candidate panels`);
+      for (const p of transcriptPanels) {
+        try {
+          p.setAttribute('visibility', 'ENGAGEMENT_PANEL_VISIBILITY_EXPANDED');
+          p.removeAttribute('hidden');
+        } catch (e) {}
+      }
+
+      // Also dispatch yt-action to officially open the transcript panel.
+      // This is how YouTube's own code triggers the panel.
+      try {
+        const ytApp = document.querySelector('ytd-app');
+        if (ytApp && typeof ytApp.dispatchEvent === 'function') {
+          ytApp.dispatchEvent(new CustomEvent('yt-action', {
+            detail: {
+              actionName: 'yt-show-engagement-panel-command',
+              optionalAction: false,
+              args: [{
+                panelIdentifier: 'engagement-panel-searchable-transcript',
+              }],
+              returnValue: [],
+            },
+            bubbles: true,
+            composed: true,
+          }));
+          diag.tried.push('dispatched yt-show-engagement-panel-command');
+        }
+      } catch (e) {
+        diag.tried.push('yt-action dispatch threw: ' + (e && e.message));
+      }
+
+      // Also click the "Show transcript" button if present (fallback).
       const expand = document.querySelector('tp-yt-paper-button#expand, #expand, #description-inline-expander #expand');
-      if (expand) { diag.tried.push('clicked description expand'); expand.click(); await sleep(200); }
-
-      // Try several ways to open the transcript panel.
-      const tryClick = (sel) => {
-        const b = document.querySelector(sel);
-        if (b) {
-          diag.tried.push(`query: ${sel}`);
-          diag.clicked = sel;
-          b.click();
-          return true;
-        }
-        return false;
-      };
-
-      let triggered = false;
-      const selectors = [
-        'ytd-video-description-transcript-section-renderer button',
-        'ytd-video-description-transcript-section-renderer ytd-button-renderer button',
-        'ytd-structured-description-content-renderer ytd-video-description-transcript-section-renderer button',
-        'button[aria-label*="ranscript" i]',
-      ];
-      for (const sel of selectors) {
-        if (tryClick(sel)) { triggered = true; break; }
-      }
-      if (!triggered) {
-        // Scan all clickable controls for "show transcript" text
-        const allCtrls = document.querySelectorAll('button, yt-button-shape button, tp-yt-paper-button, ytd-menu-service-item-renderer, [role="menuitem"]');
-        for (const b of allCtrls) {
-          const label = (b.getAttribute('aria-label') || b.textContent || '').trim();
-          if (/show transcript/i.test(label)) {
-            diag.tried.push(`text scan matched: "${label.slice(0, 60)}"`);
-            diag.clicked = `text scan: ${label.slice(0, 40)}`;
-            b.click();
-            triggered = true;
-            break;
-          }
-        }
-      }
-      if (!triggered) {
-        snapshotPanels();
-        return { ok: false, error: 'Could not find Show transcript button', diag };
+      if (expand) { diag.tried.push('clicked description expand'); expand.click(); await sleep(150); }
+      const descBtn = document.querySelector('ytd-video-description-transcript-section-renderer button');
+      if (descBtn) {
+        diag.tried.push('clicked description transcript button');
+        diag.clicked = 'ytd-video-description-transcript-section-renderer button';
+        descBtn.click();
       }
 
-      // Poll for segments to appear, up to 8 seconds.
-      for (let i = 0; i < 80; i++) {
+      // Poll for segments to appear, up to 10 seconds.
+      for (let i = 0; i < 100; i++) {
         await sleep(100);
         segs = readSegments();
         if (segs.length > 0) { snapshotPanels(); return { ok: true, segments: segs, opened: true, diag }; }
       }
       snapshotPanels();
-      return { ok: false, error: 'Transcript panel did not populate within 8s', diag };
+      return {
+        ok: false,
+        error: 'Transcript panel did not populate within 10s. Workaround: click Show transcript in the YouTube UI first, then click the extension.',
+        diag
+      };
     },
   });
 
