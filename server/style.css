@@ -210,7 +210,6 @@ header:has(.header-inner.yt) { padding: 0.75rem 1rem; }
   cursor: pointer;
 }
 .yt-header-actions .yt-bookmark-btn { font-size: 1rem; }
-.yt-header-actions .header-link { font-weight: 700; }
 .yt-header-actions .yt-bookmark-btn:hover,
 .yt-header-actions .header-link:hover {
   background: #f0ebe3;
