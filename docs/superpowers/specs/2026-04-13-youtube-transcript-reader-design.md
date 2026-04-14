@@ -96,10 +96,11 @@ standard workaround is used:
 2. The content script listens for that message with an origin check, then:
    a. Resolves an English caption track from
       `player.captions.playerCaptionsTracklistRenderer.captionTracks`, preferring
-      `languageCode === 'en' && kind !== 'asr'`, falling back to the first English
-      track, falling back to the first track. If no tracks exist, sends
-      `{ error: 'No captions available for this video' }` to the background and
-      exits.
+      `languageCode === 'en' && kind !== 'asr'` (human English), falling back to
+      any `languageCode === 'en'` track (auto-generated English). If no English
+      track exists, sends `{ error: 'No English captions available for this
+      video' }` to the background and exits — non-English content is explicitly
+      out of scope, so there is no fallback to other languages.
    b. Fetches `track.baseUrl + '&fmt=json3'` and parses the `events` array into
       `[{ startMs, text }]` entries. Each event's `segs` array is joined with
       spaces, leading/trailing whitespace trimmed, and empty events dropped.
