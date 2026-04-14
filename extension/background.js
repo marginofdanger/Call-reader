@@ -10,7 +10,11 @@ chrome.contextMenus.onClicked.addListener((info) => {
   if (info.menuItemId === 'open-status') {
     chrome.tabs.create({ url: `${SERVER_URL}/status` });
   } else if (info.menuItemId === 'open-settings') {
-    chrome.action.openPopup();
+    // chrome.action.openPopup() throws "Extension does not have a popup"
+    // because our manifest intentionally leaves default_popup empty (the
+    // icon click triggers scraping, not a popup). Open popup.html in a
+    // new tab instead so users can still reach the settings.
+    chrome.tabs.create({ url: chrome.runtime.getURL('popup.html') });
   }
 });
 

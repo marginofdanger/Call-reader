@@ -645,9 +645,12 @@ app.post('/summarize-youtube', async (req, res) => {
         const bodyFragment = await new Promise((resolve, reject) => {
           const chunks = [];
           const errChunks = [];
+          // 15min timeout -- long podcast transcripts (100k+ char prompts)
+          // routinely need 3-6min on Haiku when there's concurrent load,
+          // and the previous 5min cap was hitting SIGTERM mid-stream.
           const child = spawn('claude', ['-p', '--output-format', 'text', '--tools', '', '--model', lockedModel], {
             stdio: ['pipe', 'pipe', 'pipe'],
-            timeout: 300000
+            timeout: 900000
           });
           child.stdout.on('data', d => chunks.push(d));
           child.stderr.on('data', d => errChunks.push(d));
