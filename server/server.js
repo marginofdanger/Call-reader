@@ -187,7 +187,7 @@ if (sessionStorage.getItem('completedOpen') === '1') {
 </script>
 </head><body>
 <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap">
-<h1 style="margin-bottom:0">BamSEC Summarizer</h1>
+<h1 style="margin-bottom:0">Expert / Earnings / YouTube Summarizer</h1>
 <div style="font-size:0.78rem;color:#8b6d4e;display:flex;gap:1rem;align-items:center">
 <span><strong>Status:</strong> <span class="badge ${processing() ? 'active' : 'idle'}">${processing() ? '⏳ ' + activeWorkers + '/' + maxConcurrency : '✓ Idle'}</span></span>
 <label>EC verbosity <input type="number" id="ec-v" value="60" min="10" max="200" step="10" style="width:3rem;font-size:0.75rem;border:1px solid #c4956a;border-radius:3px;padding:1px 3px"></label>
@@ -740,5 +740,5 @@ app.post('/settings', (req, res) => {
 });
 
 app.listen(PORT, () => {
-  log(`BamSEC Summarizer server running at http://localhost:${PORT} (concurrency: ${maxConcurrency})`);
+  log(`Expert / Earnings / YouTube Summarizer server running at http://localhost:${PORT} (concurrency: ${maxConcurrency})`);
 });
