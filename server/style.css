@@ -111,3 +111,42 @@ tbody tr:nth-child(odd) { background: #faf8f5; }
   text-align: center;
   color: #8b6d4e;
 }
+
+/* YouTube transcript reader */
+.yt-meta-card {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
+  margin-bottom: 1.5rem;
+  background: #f5efe8;
+  border-left: 4px solid #c4956a;
+  border-radius: 0 6px 6px 0;
+  padding: 0.9rem 1rem;
+}
+.yt-meta-card img {
+  flex: 0 0 180px;
+  height: 101px;
+  object-fit: cover;
+  border-radius: 4px;
+}
+.yt-meta-body { flex: 1; font-size: 0.93rem; }
+.yt-meta-title { font-weight: 700; font-size: 1rem; margin-bottom: 0.25rem; }
+.yt-meta-sub { color: #8b6d4e; margin-bottom: 0.35rem; }
+.yt-meta-url { font-size: 0.85rem; color: #3d3225; }
+
+h3.chapter {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #3d3225;
+  margin-top: 1.5rem;
+  margin-bottom: 0.5rem;
+}
+h3.chapter a {
+  font-size: 0.8rem;
+  color: #8b6d4e;
+  text-decoration: none;
+  font-weight: 400;
+}
