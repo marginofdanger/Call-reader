@@ -137,14 +137,11 @@ tbody tr:nth-child(odd) { background: #faf8f5; }
 .yt-meta-sub { color: #8b6d4e; margin-bottom: 0.35rem; }
 .yt-meta-url { font-size: 0.85rem; color: #3d3225; }
 
-/* YouTube sticky header spans the full viewport width so the buttons
-   sit at the right edge. The body text below is still 78ch-capped. */
-header:has(.header-inner.yt) { padding: 0.75rem 1.5rem; }
-.header-inner.yt {
-  max-width: none;
-  margin: 0;
-  gap: 1rem;
-}
+/* YouTube sticky header uses the default 78ch-capped centered
+   container so it aligns with the body text column below. The
+   buttons sit at the right edge of that centered container. */
+header:has(.header-inner.yt) { padding: 0.75rem 1rem; }
+.header-inner.yt { gap: 1rem; }
 .header-title.yt {
   display: flex;
   gap: 0.9rem;
