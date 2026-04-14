@@ -113,18 +113,50 @@ tbody tr:nth-child(odd) { background: #faf8f5; }
 }
 
 /* YouTube transcript reader */
+
+/* Legacy .yt-meta-card -- kept so old output files still render cleanly.
+   New output uses .header-title.yt below instead. */
+.yt-meta-card {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
+  margin-bottom: 1.5rem;
+  background: #f5efe8;
+  border-left: 4px solid #c4956a;
+  border-radius: 0 6px 6px 0;
+  padding: 0.9rem 1rem;
+}
+.yt-meta-card img {
+  flex: 0 0 180px;
+  height: 101px;
+  object-fit: cover;
+  border-radius: 4px;
+}
+.yt-meta-body { flex: 1; font-size: 0.93rem; }
+.yt-meta-title { font-weight: 700; font-size: 1rem; margin-bottom: 0.25rem; }
+.yt-meta-sub { color: #8b6d4e; margin-bottom: 0.35rem; }
+.yt-meta-url { font-size: 0.85rem; color: #3d3225; }
+
+/* YouTube sticky header spans the full viewport width so the Watch
+   button can push all the way to the right edge, unlike the default
+   78ch-capped .header-inner used by other endpoints. */
+header:has(.header-inner.yt) { padding: 0.75rem 1.5rem; }
+.header-inner.yt {
+  max-width: none;
+  margin: 0;
+  gap: 1rem;
+}
 .header-title.yt {
   display: flex;
-  gap: 0.7rem;
+  gap: 0.9rem;
   align-items: center;
   min-width: 0;
   flex: 1;
-  margin-right: 0.7rem;
 }
-.yt-header-thumb { flex: 0 0 72px; line-height: 0; }
+.yt-header-thumb { flex: 0 0 88px; line-height: 0; }
 .yt-header-thumb img {
-  width: 72px;
-  height: 40px;
+  width: 88px;
+  height: 50px;
   object-fit: cover;
   border-radius: 3px;
   display: block;
@@ -133,15 +165,17 @@ tbody tr:nth-child(odd) { background: #faf8f5; }
 .yt-header-text strong {
   display: block;
   font-size: 1rem;
-  line-height: 1.25;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  line-height: 1.3;
   color: #2c2418;
+  /* Allow wrapping to 2 lines so long podcast titles show in full. */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 .yt-header-sub {
-  font-size: 0.78rem;
-  margin-top: 0.1rem;
+  font-size: 0.8rem;
+  margin-top: 0.2rem;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -149,7 +183,7 @@ tbody tr:nth-child(odd) { background: #faf8f5; }
 .yt-header-sub .yt-channel { color: #8b6d4e; }
 .yt-header-sub .yt-date,
 .yt-header-sub .yt-dur { color: #3d3225; font-weight: 600; }
-.yt-header-sub .yt-sep { color: #c4956a; margin: 0 0.45rem; }
+.yt-header-sub .yt-sep { color: #c4956a; margin: 0 0.5rem; }
 
 h3.chapter {
   display: flex;

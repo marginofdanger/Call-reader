@@ -130,11 +130,11 @@ function renderYouTubeOutput(meta, bodyFragment) {
 </head>
 <body>
   <header>
-    <div class="header-inner">
+    <div class="header-inner yt">
       <div class="header-title yt">
         <a class="yt-header-thumb" href="${watchUrl}" target="_blank"><img src="${thumbnailUrl}" alt=""></a>
         <div class="yt-header-text">
-          <strong title="${title}">${title}</strong>
+          <strong>${title}</strong>
           <div class="yt-header-sub">
             <span class="yt-channel">${channel}</span>
             <span class="yt-sep">&middot;</span>
