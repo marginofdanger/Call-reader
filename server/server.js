@@ -588,7 +588,11 @@ app.post('/summarize-youtube', async (req, res) => {
   }
 
   const verbosity = Number(body.verbosity) || 180;
-  const lockedModel = body.model || settings.model || 'opus';
+  // YouTube transcript cleanup is a mechanical edit task (punctuation,
+  // paragraph breaks, filler strip) that doesn't need Opus reasoning.
+  // Lock the YT endpoint to Haiku so it's fast and cheap; other endpoints
+  // still pick up settings.model from the status page dropdown.
+  const lockedModel = 'haiku';
   const label = `[YT] ${body.title.length > 80 ? body.title.slice(0, 77) + '...' : body.title}`;
 
   log(`POST /summarize-youtube: "${body.title}" channel=${body.channel || 'none'} ` +
